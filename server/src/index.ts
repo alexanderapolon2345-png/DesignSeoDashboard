@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import authRoutes from "./routes/auth.js";
 import agencyRoutes from "./routes/agencies.js";
 import taskRoutes from "./routes/tasks.js";
+import clientRoutes from "./routes/clients.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 dotenv.config();
@@ -29,6 +30,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/agencies", agencyRoutes);
 app.use("/api/tasks", taskRoutes);
+app.use("/api/clients", clientRoutes);
 
 // Health check
 app.get("/health", (req, res) => {

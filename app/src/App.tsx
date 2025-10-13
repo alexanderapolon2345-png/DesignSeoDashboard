@@ -5,16 +5,20 @@ import { RootState } from "./store";
 import { checkAuth } from "./store/slices/authSlice";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import AdminDashboard from "./pages/AdminDashboard";
-import WorkerDashboard from "./pages/WorkerDashboard";
+import AdminDashboard from "./pages/Admin/AdminDashboardPage";
+import WorkerDashboard from "./pages/Worker/WorkerDashboardPage";
 import DashboardLayout from "./components/DashboardLayout";
-import DashboardPage from "./pages/DashboardPage";
-import ProjectsPage from "./pages/ProjectsPage";
+import ClientsPage from "./pages/ClientsPage";
 import KeywordsPage from "./pages/KeywordsPage";
 import RankingsPage from "./pages/RankingPage";
 import ReportsPage from "./pages/ReportsPage";
 import TeamPage from "./pages/TeamPage";
 import SettingsPage from "./pages/SettingsPage";
+import TasksPage from "./pages/TasksPage";
+import SuperAdminDashboard from "./pages/SuperAdmin/SuperAdminDashboard";
+import AgencyDashboardPage from "./pages/Agency/AgencyDashboardPage";
+import AgenciesPage from "./pages/SuperAdmin/AgenciesPage";
+import ReportPage from "./pages/ReportPage";
 
 function App() {
   const dispatch = useDispatch();
@@ -43,20 +47,41 @@ function App() {
 
   // Role-based dashboard URLs
   const dashboardUrls = {
+    SUPER_ADMIN: "/superadmin/dashboard",
     ADMIN: "/admin/dashboard",
     AGENCY: "/agency/dashboard",
     WORKER: "/worker/dashboard",
   };
 
   // Agency routes with DashboardLayout
+  const superAdminRoutes = [
+    { path: "/superadmin/dashboard", component: SuperAdminDashboard },
+    { path: "/superadmin/clients", component: ClientsPage },
+    { path: "/superadmin/agencies/myagency", component: AgencyDashboardPage },
+    { path: "/superadmin/agencies/allagencies", component: AgenciesPage },
+    { path: "/superadmin/tasks", component: TasksPage },
+    { path: "/superadmin/settings", component: SettingsPage },
+  ];
+
+  // Agency routes with DashboardLayout
   const agencyRoutes = [
-    { path: "/agency/dashboard", component: DashboardPage },
-    { path: "/agency/projects", component: ProjectsPage },
+    { path: "/agency/dashboard", component: AgencyDashboardPage },
+    { path: "/agency/clients", component: ClientsPage },
+    { path: "/agency/tasks", component: TasksPage },
     { path: "/agency/keywords", component: KeywordsPage },
     { path: "/agency/rankings", component: RankingsPage },
     { path: "/agency/reports", component: ReportsPage },
+    { path: "/agency/report", component: ReportPage },
     { path: "/agency/team", component: TeamPage },
     { path: "/agency/settings", component: SettingsPage },
+  ];
+
+  // Agency routes with DashboardLayout
+  const workerRoutes = [
+    { path: "/worker/dashboard", component: WorkerDashboard },
+    { path: "/worker/myagency", component: AgencyDashboardPage },
+    { path: "/worker/tasks", component: TasksPage },
+    { path: "/worker/settings", component: SettingsPage },
   ];
 
   const getRedirectUrl = () => {
@@ -88,6 +113,25 @@ function App() {
         }
       />
 
+      {/* Super Admin routes */}
+      {superAdminRoutes.map(({ path, component: Component }) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            !user || !user.verified ? (
+              <Navigate to="/login" replace />
+            ) : user.role !== "SUPER_ADMIN" ? (
+              <Navigate to={getRedirectUrl()} replace />
+            ) : (
+              <DashboardLayout>
+                <Component />
+              </DashboardLayout>
+            )
+          }
+        />
+      ))}
+
       {/* Admin routes */}
       <Route
         path="/admin/dashboard"
@@ -102,19 +146,24 @@ function App() {
         }
       />
 
-      {/* Worker routes */}
-      <Route
-        path="/worker/dashboard"
-        element={
-          !user || !user.verified ? (
-            <Navigate to="/login" replace />
-          ) : user.role !== "WORKER" ? (
-            <Navigate to={getRedirectUrl()} replace />
-          ) : (
-            <WorkerDashboard />
-          )
-        }
-      />
+      {workerRoutes.map(({ path, component: Component }) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            !user || !user.verified ? (
+              <Navigate to="/login" replace />
+            ) : user.role !== "WORKER" ? (
+              <Navigate to={getRedirectUrl()} replace />
+            ) : (
+              <DashboardLayout>
+                <Component />
+              </DashboardLayout>
+            )
+          }
+        />
+      ))}
+
 
       {/* Agency routes */}
       {agencyRoutes.map(({ path, component: Component }) => (

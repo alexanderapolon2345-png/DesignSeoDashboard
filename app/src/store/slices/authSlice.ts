@@ -1,11 +1,12 @@
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import api from "../../lib/api";
+import { ROLE } from "@/utils/types";
 
 export interface User {
   id: string;
   email: string;
   name?: string;
-  role: "ADMIN" | "AGENCY" | "WORKER";
+  role: ROLE;
   verified: boolean;
   invited: boolean;
 }

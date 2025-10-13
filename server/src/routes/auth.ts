@@ -43,7 +43,6 @@ router.post("/register", async (req, res) => {
         name,
         passwordHash,
         role: "AGENCY",
-        verified: true,
       },
     });
 

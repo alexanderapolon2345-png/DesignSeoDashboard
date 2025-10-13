@@ -1,14 +1,16 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import api from "../../lib/api";
 
-export interface Project {
+export interface Client {
   id: string;
   name: string;
   domain: string;
-  status: "ACTIVE" | "PAUSED" | "ARCHIVED";
+  status: "ACTIVE" | "PENDING" | "REJECTED";
+  industry?: string;
+  targets?: string[];
   createdAt: string;
   updatedAt: string;
-  agencyId: string;
+  userId: string;
   keywords?: Keyword[] | number;
   rankings?: Ranking[];
   avgPosition?: number;
@@ -38,57 +40,71 @@ export interface Ranking {
   projectId: string;
 }
 
-interface ProjectState {
-  projects: Project[];
-  currentProject: Project | null;
+interface ClientState {
+  clients: Client[];
+  currentClient: Client | null;
   keywords: Keyword[];
   rankings: Ranking[];
   loading: boolean;
   error: string | null;
 }
 
-const initialState: ProjectState = {
-  projects: [],
-  currentProject: null,
+const initialState: ClientState = {
+  clients: [],
+  currentClient: null,
   keywords: [],
   rankings: [],
   loading: false,
   error: null,
 };
 
-export const fetchProjects = createAsyncThunk(
-  "project/fetchProjects",
+export const fetchClients = createAsyncThunk(
+  "client/fetchClients",
   async () => {
     try {
-      const response = await api.get("/projects");
+      const response = await api.get("/clients");
       return response.data;
     } catch (error: any) {
       throw new Error(
-        error.response?.data?.message || "Failed to fetch projects"
+        error.response?.data?.message || "Failed to fetch clients"
       );
     }
   }
 );
 
-export const createProject = createAsyncThunk(
-  "project/createProject",
-  async ({ name, domain }: { name: string; domain: string }) => {
+export const createClient = createAsyncThunk(
+  "client/createClient",
+  async ({ id, data }: { id: string; data: any }) => {
     try {
-      const response = await api.post("/projects", { name, domain });
+      const response = await api.post(`/clients/${id}`, { data });
       return response.data;
     } catch (error: any) {
       throw new Error(
-        error.response?.data?.message || "Failed to create project"
+        error.response?.data?.message || "Failed to create client"
+      );
+    }
+  }
+);
+
+export const updateClient = createAsyncThunk(
+  "client/updateClient",
+  async ({ id, data }: { id: string; data: any }) => {
+    try {
+      const response = await api.put(`/clients/${id}`, { data });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(
+        error.response?.data?.message || "Failed to update client"
       );
     }
   }
 );
 
 export const fetchKeywords = createAsyncThunk(
-  "project/fetchKeywords",
-  async (projectId: string) => {
+  "client/fetchKeywords",
+  async (clientId: string) => {
     try {
-      const response = await api.get(`/projects/${projectId}/keywords`);
+      const response = await api.get(`/clients/${clientId}/keywords`);
       return response.data;
     } catch (error: any) {
       throw new Error(
@@ -99,18 +115,18 @@ export const fetchKeywords = createAsyncThunk(
 );
 
 export const addKeyword = createAsyncThunk(
-  "project/addKeyword",
+  "client/addKeyword",
   async ({
-    projectId,
+    clientId,
     keyword,
     searchVolume,
   }: {
-    projectId: string;
+    clientId: string;
     keyword: string;
     searchVolume: number;
   }) => {
     try {
-      const response = await api.post(`/projects/${projectId}/keywords`, {
+      const response = await api.post(`/clients/${clientId}/keywords`, {
         keyword,
         searchVolume,
       });
@@ -122,10 +138,10 @@ export const addKeyword = createAsyncThunk(
 );
 
 export const fetchRankings = createAsyncThunk(
-  "project/fetchRankings",
-  async (projectId: string) => {
+  "client/fetchRankings",
+  async (clientId: string) => {
     try {
-      const response = await api.get(`/projects/${projectId}/rankings`);
+      const response = await api.get(`/clients/${clientId}/rankings`);
       return response.data;
     } catch (error: any) {
       throw new Error(
@@ -135,32 +151,39 @@ export const fetchRankings = createAsyncThunk(
   }
 );
 
-const projectSlice = createSlice({
-  name: "project",
+const clientSlice = createSlice({
+  name: "client",
   initialState,
   reducers: {
     clearError: (state) => {
       state.error = null;
     },
-    setCurrentProject: (state, action) => {
-      state.currentProject = action.payload;
+    setCurrentClient: (state, action) => {
+      state.currentClient = action.payload;
     },
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchProjects.pending, (state) => {
+      .addCase(fetchClients.pending, (state) => {
         state.loading = true;
       })
-      .addCase(fetchProjects.fulfilled, (state, action) => {
+      .addCase(fetchClients.fulfilled, (state, action) => {
         state.loading = false;
-        state.projects = action.payload;
+        state.clients = action.payload;
       })
-      .addCase(fetchProjects.rejected, (state, action) => {
+      .addCase(fetchClients.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message || "Failed to fetch projects";
+        state.error = action.error.message || "Failed to fetch clients";
       })
-      .addCase(createProject.fulfilled, (state, action) => {
-        state.projects.push(action.payload);
+      .addCase(createClient.fulfilled, (state, action) => {
+        state.clients.push(action.payload);
+      })
+      .addCase(updateClient.fulfilled, (state, action) => {
+        // replace updated client in the list
+        const idx = state.clients.findIndex((c) => c.id === action.payload.id);
+        if (idx !== -1) {
+          state.clients[idx] = action.payload;
+        }
       })
       .addCase(fetchKeywords.fulfilled, (state, action) => {
         state.keywords = action.payload;
@@ -174,5 +197,5 @@ const projectSlice = createSlice({
   },
 });
 
-export const { clearError, setCurrentProject } = projectSlice.actions;
-export default projectSlice.reducer;
+export const { clearError, setCurrentClient } = clientSlice.actions;
+export default clientSlice.reducer;

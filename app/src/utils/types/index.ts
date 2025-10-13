@@ -1,0 +1,48 @@
+export type TaskStatus = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
+export type ROLE = "SUPER_ADMIN" | "ADMIN" | "AGENCY" | "WORKER";
+
+export interface Task {
+  id: string;
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  status: TaskStatus;
+  createdAt: string;
+  dueDate?: string | null;
+  assignee?: {
+    id: string;
+    name: string | null;
+    email: string;
+  } | null;
+  client?: {
+    id: string;
+    name: string;
+    domain: string;
+  } | null;
+  agency?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+export type Column = {
+  id: string;
+  title: string;
+  taskIds: string[];
+};
+
+export type KanbanBoardType = {
+  tasks: Record<string, Task>;
+  columns: Record<string, Column>;
+  columnOrder: string[];
+};
+
+export type User = {
+  _id: string;
+  name: string;
+  email: string;
+  role: ROLE;
+  verified: boolean;
+  invited: boolean;
+  createdAt: string;
+};

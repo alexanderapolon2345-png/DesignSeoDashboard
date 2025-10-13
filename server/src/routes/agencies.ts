@@ -15,7 +15,7 @@ const inviteSchema = z.object({
 // Get all agencies (Admin only)
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role !== 'ADMIN') {
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -46,7 +46,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // Invite agency (Admin only)
 router.post('/invite', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role !== 'ADMIN') {
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -116,12 +116,12 @@ router.post('/:agencyId/invite-worker', authenticateToken, async (req, res) => {
       where: {
         userId: req.user.userId,
         agencyId,
-        agencyRole: { in: ['AGENCY', 'ADMIN'] },
+        agencyRole: { in: ['WORKER', 'OWNER', 'MANAGER'] },
       },
       include: { agency: true },
     });
 
-    if (!membership && req.user.role !== 'ADMIN') {
+    if (!membership && (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN')) {
       return res.status(403).json({ message: 'Access denied' });
     }
 

@@ -15,5 +15,9 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "react-grid-layout": "^1.5.2",
+    "recharts": "^3.2.1"
   }
 }

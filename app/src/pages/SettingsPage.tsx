@@ -42,11 +42,11 @@ const SettingsPage = () => {
   });
 
   const tabs = [
-    { id: "profile", label: "Profile", icon: User },
-    { id: "agency", label: "Agency", icon: Building2 },
-    { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "security", label: "Security", icon: Shield },
-    { id: "billing", label: "Billing", icon: CreditCard },
+    { id: "profile", label: "Profile", icon: User, roles: ["SUPER_ADMIN", "ADMIN", "AGENCY", "WORKER"] },
+    { id: "agency", label: "Agency", icon: Building2, roles: ["AGENCY"] },
+    { id: "notifications", label: "Notifications", icon: Bell, roles: ["SUPER_ADMIN", "ADMIN", "AGENCY", "WORKER"] },
+    { id: "security", label: "Security", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "AGENCY", "WORKER"] },
+    { id: "billing", label: "Billing", icon: CreditCard, roles: ["SUPER_ADMIN", "ADMIN", "AGENCY", "WORKER"] },
   ];
 
   const handleProfileSubmit = (e: React.FormEvent) => {
@@ -58,6 +58,10 @@ const SettingsPage = () => {
     e.preventDefault();
     console.log("Updating agency:", agencyForm);
   };
+
+  const filteredTabs = tabs.filter((tab) =>
+    tab.roles.includes(user?.role || "")
+  );
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -293,14 +297,12 @@ const SettingsPage = () => {
                           [key]: !value,
                         })
                       }
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        value ? "bg-primary-600" : "bg-gray-200"
-                      }`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${value ? "bg-primary-600" : "bg-gray-200"
+                        }`}
                     >
                       <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          value ? "translate-x-6" : "translate-x-1"
-                        }`}
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${value ? "translate-x-6" : "translate-x-1"
+                          }`}
                       />
                     </button>
                   </div>
@@ -431,17 +433,16 @@ const SettingsPage = () => {
         {/* Sidebar */}
         <div className="lg:col-span-1">
           <nav className="space-y-2">
-            {tabs.map((tab) => {
+            {filteredTabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
-                    activeTab === tab.id
-                      ? "bg-primary-50 text-primary-700 border border-primary-200"
-                      : "text-gray-700 hover:bg-gray-50"
-                  }`}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${activeTab === tab.id
+                    ? "bg-primary-50 text-primary-700 border border-primary-200"
+                    : "text-gray-700 hover:bg-gray-50"
+                    }`}
                 >
                   <Icon className="h-5 w-5" />
                   <span className="font-medium">{tab.label}</span>

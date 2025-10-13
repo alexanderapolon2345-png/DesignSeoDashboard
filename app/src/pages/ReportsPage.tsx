@@ -11,8 +11,10 @@ import {
   Edit,
   Filter,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const ReportsPage = () => {
+  const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [reportForm, setReportForm] = useState({
     name: "",
@@ -233,7 +235,7 @@ const ReportsPage = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center space-x-2">
-                      <button className="p-1 text-gray-400 hover:text-primary-600 transition-colors">
+                      <button className="p-1 text-gray-400 hover:text-primary-600 transition-colors" onClick={() => navigate("/agency/report")}>
                         <Eye className="h-4 w-4" />
                       </button>
                       <button className="p-1 text-gray-400 hover:text-primary-600 transition-colors">

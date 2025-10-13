@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/store";
-import { fetchProjects } from "@/store/slices/projectSlice";
+import { fetchClients } from "@/store/slices/clientSlice";
 import {
   TrendingUp,
   TrendingDown,
@@ -18,14 +18,14 @@ import {
   Target,
 } from "lucide-react";
 
-const DashboardPage = () => {
+const AgencyDashboardPage = () => {
   const dispatch = useDispatch();
   const { user } = useSelector((state: RootState) => state.auth);
-  const { projects } = useSelector((state: RootState) => state.project);
+  const { clients } = useSelector((state: RootState) => state.client);
   const [selectedPeriod, setSelectedPeriod] = useState("30");
 
   useEffect(() => {
-    dispatch(fetchProjects() as any);
+    dispatch(fetchClients() as any);
   }, [dispatch]);
 
   // Mock data for demo
@@ -33,7 +33,7 @@ const DashboardPage = () => {
     totalKeywords: 1247,
     avgPosition: 12.4,
     topRankings: 89,
-    totalProjects: projects.length || 5,
+    totalProjects: clients.length || 5,
     totalClicks: 15420,
     totalImpressions: 234567,
     organicTraffic: 45230,
@@ -115,6 +115,7 @@ const DashboardPage = () => {
       position: 8.4,
     },
   ];
+
   const getChangeIcon = (change: number) => {
     if (change > 0) return <ArrowUpRight className="h-4 w-4 text-green-500" />;
     if (change < 0) return <ArrowDownRight className="h-4 w-4 text-red-500" />;
@@ -411,4 +412,4 @@ const DashboardPage = () => {
   );
 };
 
-export default DashboardPage;
+export default AgencyDashboardPage;

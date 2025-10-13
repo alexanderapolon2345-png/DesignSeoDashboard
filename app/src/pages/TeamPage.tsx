@@ -113,7 +113,7 @@ const TeamPage = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Total Members</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-2xl font-bold text-primary-600">
                 {teamMembers.length}
               </p>
             </div>
@@ -225,9 +225,8 @@ const TeamPage = () => {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-600">
                       {member.projects.length > 0
-                        ? `${member.projects.length} project${
-                            member.projects.length !== 1 ? "s" : ""
-                          }`
+                        ? `${member.projects.length} project${member.projects.length !== 1 ? "s" : ""
+                        }`
                         : "None"}
                     </div>
                   </td>

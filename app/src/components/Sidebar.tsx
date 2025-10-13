@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
 import { RootState } from "../store";
@@ -17,6 +17,7 @@ import {
   Target,
   Menu,
   ChevronLeft,
+  PersonStanding
 } from "lucide-react";
 
 interface SidebarProps {
@@ -28,6 +29,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const { user } = useSelector((state: RootState) => state.auth);
 
   const handleLogout = () => {
@@ -35,54 +37,146 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
     navigate("/login");
   };
 
+  const toggleSubMenu = (path: string) => {
+    setOpenMenu(openMenu === path ? null : path);
+  };
+
   const menuItems = [
+    // Agency
     {
       icon: Home,
       label: "Dashboard",
       path: "/agency/dashboard",
-      roles: ["ADMIN", "AGENCY", "WORKER"],
+      hasSubMenu: false,
+      roles: ["AGENCY"],
+    },
+    {
+      icon: PersonStanding,
+      label: "Clients",
+      path: "/agency/clients",
+      hasSubMenu: false,
+      roles: ["AGENCY"],
     },
     {
       icon: FolderOpen,
-      label: "Projects",
-      path: "/agency/projects",
-      roles: ["ADMIN", "AGENCY", "WORKER"],
+      label: "Tasks",
+      path: "/agency/tasks",
+      hasSubMenu: false,
+      roles: ["AGENCY"],
     },
     {
       icon: Search,
       label: "Keywords",
       path: "/agency/keywords",
-      roles: ["ADMIN", "AGENCY", "WORKER"],
+      hasSubMenu: false,
+      roles: ["AGENCY"],
     },
     {
       icon: Target,
       label: "Rankings",
       path: "/agency/rankings",
-      roles: ["ADMIN", "AGENCY", "WORKER"],
+      hasSubMenu: false,
+      roles: ["AGENCY"],
     },
     {
       icon: FileText,
       label: "Reports",
       path: "/agency/reports",
-      roles: ["ADMIN", "AGENCY"],
-    },
-    {
-      icon: Building2,
-      label: "Agencies",
-      path: "/agency/agencies",
-      roles: ["ADMIN"],
+      hasSubMenu: false,
+      roles: ["AGENCY"],
     },
     {
       icon: Users,
       label: "Team",
       path: "/agency/team",
-      roles: ["ADMIN", "AGENCY"],
+      hasSubMenu: false,
+      roles: ["AGENCY"],
     },
     {
       icon: Settings,
       label: "Settings",
       path: "/agency/settings",
-      roles: ["ADMIN", "AGENCY", "WORKER"],
+      hasSubMenu: false,
+      roles: ["AGENCY"],
+    },
+
+    // Super Admin
+    {
+      icon: Home,
+      label: "Dashboard",
+      path: "/superadmin/dashboard",
+      hasSubMenu: false,
+      roles: ["SUPER_ADMIN"],
+    },
+    {
+      icon: Building2,
+      label: "Agencies",
+      path: "/superadmin/agencies",
+      hasSubMenu: true,
+      roles: ["SUPER_ADMIN"],
+      subMenus: [
+        {
+          label: "My Agency",
+          path: "/superadmin/agencies/myagency",
+          hasSubMenu: false,
+        },
+        {
+          label: "All Agencies",
+          path: "/superadmin/agencies/allagencies",
+          hasSubMenu: false,
+        }
+      ]
+    },
+    {
+      icon: PersonStanding,
+      label: "Clients",
+      path: "/superadmin/clients",
+      hasSubMenu: false,
+      roles: ["SUPER_ADMIN"],
+    },
+    {
+      icon: FolderOpen,
+      label: "Tasks",
+      path: "/superadmin/tasks",
+      hasSubMenu: false,
+      roles: ["SUPER_ADMIN"],
+    },
+    {
+      icon: Settings,
+      label: "Settings",
+      path: "/superadmin/settings",
+      hasSubMenu: false,
+      roles: ["SUPER_ADMIN"],
+    },
+
+    // Worker
+    {
+      icon: Home,
+      label: "Dashboard",
+      path: "/worker/dashboard",
+      hasSubMenu: false,
+      roles: ["WORKER"],
+    },
+    {
+      icon: Building2,
+      label: "My Agency",
+      path: "/worker/myagency",
+      hasSubMenu: false,
+      roles: ["WORKER"],
+    },
+    {
+      icon: FolderOpen,
+      label: "Tasks",
+      path: "/worker/tasks",
+      hasSubMenu: false,
+      roles: ["WORKER"],
+    },
+    {
+      icon: Settings,
+      label: "Settings",
+      path: "/worker/settings",
+      hasSubMenu: false,
+      roles: ["WORKER"],
     },
   ];
 
@@ -92,9 +186,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
 
   return (
     <div
-      className={`${
-        collapsed ? "w-16" : "w-64"
-      } bg-gray-900 h-screen flex flex-col transition-all duration-300 fixed left-0 top-0 z-30`}
+      className={`${collapsed ? "w-16" : "w-64"
+        } bg-gray-900 h-screen flex flex-col transition-all duration-300 fixed left-0 top-0 z-30`}
     >
       {/* Toggle Button */}
       <div className="absolute -right-3 top-6 z-40">
@@ -112,15 +205,13 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
 
       {/* Logo */}
       <div
-        className={`${
-          collapsed ? "p-4" : "p-6"
-        } border-b border-gray-700 transition-all duration-300`}
+        className={`${collapsed ? "p-4" : "p-6"
+          } border-b border-gray-700 transition-all duration-300`}
       >
         <div className="flex items-center space-x-3">
           <BarChart3
-            className={`${
-              collapsed ? "h-6 w-6" : "h-8 w-8"
-            } text-primary-400 text-white transition-all duration-300`}
+            className={`${collapsed ? "h-6 w-6" : "h-8 w-8"
+              } text-primary-400 transition-all duration-300`}
           />
           {!collapsed && (
             <div className="transition-opacity duration-300">
@@ -133,9 +224,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
 
       {/* Navigation */}
       <nav
-        className={`flex-1 ${
-          collapsed ? "p-2" : "p-4"
-        } transition-all duration-300`}
+        className={`flex-1 ${collapsed ? "p-2" : "p-4"
+          } transition-all duration-300`}
       >
         <ul className="space-y-2">
           {filteredMenuItems.map((item) => {
@@ -144,26 +234,30 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
               location.pathname === item.path ||
               (item.path !== "agency/dashboard" &&
                 location.pathname.startsWith(item.path));
+            const isOpen = openMenu === item.path;
 
             return (
               <li key={item.path}>
                 <button
-                  onClick={() => navigate(item.path)}
-                  className={`w-full flex items-center ${
-                    collapsed
-                      ? "justify-center px-2 py-3"
-                      : "space-x-3 px-4 py-3"
-                  } rounded-lg text-left transition-all duration-300 ${
-                    isActive
+                  onClick={() => {
+                    if (item.hasSubMenu) {
+                      toggleSubMenu(item.path);
+                    } else {
+                      navigate(item.path);
+                    }
+                  }}
+                  className={`w-full flex items-center ${collapsed
+                    ? "justify-center px-2 py-3"
+                    : "space-x-3 px-4 py-3"
+                    } rounded-lg text-left transition-all duration-300 ${isActive
                       ? "bg-primary-600 text-white"
                       : "text-gray-300 hover:bg-gray-800 hover:text-white"
-                  } group relative`}
+                    } group relative`}
                   title={collapsed ? item.label : undefined}
                 >
                   <Icon
-                    className={`${
-                      collapsed ? "h-5 w-5" : "h-5 w-5"
-                    } transition-all duration-300`}
+                    className={`${collapsed ? "h-5 w-5" : "h-5 w-5"
+                      } transition-all duration-300`}
                   />
                   {!collapsed && (
                     <span className="font-medium transition-opacity duration-300">
@@ -176,6 +270,33 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
                     </div>
                   )}
                 </button>
+                {/* Submenu */}
+                {item.hasSubMenu && (
+                  <div
+                    className={`overflow-hidden transition-all duration-300 ease-in-out
+      ${isOpen && !collapsed ? "max-h-40 opacity-100 mt-1" : "max-h-0 opacity-0"}`}
+                  >
+                    <ul className="ml-4 space-y-1">
+                      {item.subMenus?.map((sub) => {
+                        const subActive = location.pathname === sub.path;
+                        return (
+                          <li key={sub.path}>
+                            <button
+                              onClick={() => navigate(sub.path)}
+                              className={`w-full flex items-center space-x-2 px-3 py-2 rounded-lg text-sm transition-all duration-300 
+                                  ${subActive
+                                  ? "bg-primary-500 text-white"
+                                  : "text-gray-400 hover:bg-gray-700 hover:text-white"
+                                }`}
+                            >
+                              <span>{sub.label}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
               </li>
             );
           })}
@@ -184,14 +305,12 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
 
       {/* User Info & Logout */}
       <div
-        className={`${
-          collapsed ? "p-2" : "p-4"
-        } border-t border-gray-700 transition-all duration-300`}
+        className={`${collapsed ? "p-2" : "p-4"
+          } border-t border-gray-700 transition-all duration-300`}
       >
         <div
-          className={`flex items-center ${
-            collapsed ? "justify-center mb-2" : "space-x-3 mb-4"
-          } transition-all duration-300`}
+          className={`flex items-center ${collapsed ? "justify-center mb-2" : "space-x-3 mb-4"
+            } transition-all duration-300`}
         >
           <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center">
             <span className="text-sm font-medium text-white">
@@ -209,9 +328,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
         </div>
         <button
           onClick={handleLogout}
-          className={`w-full flex items-center ${
-            collapsed ? "justify-center px-2 py-2" : "space-x-3 px-4 py-2"
-          } text-gray-300 hover:bg-red-600 hover:text-white rounded-lg transition-all duration-300 group relative`}
+          className={`w-full flex items-center ${collapsed ? "justify-center px-2 py-2" : "space-x-3 px-4 py-2"
+            } text-gray-300 hover:bg-red-600 hover:text-white rounded-lg transition-all duration-300 group relative`}
           title={collapsed ? "Sign out" : undefined}
         >
           <LogOut className="h-4 w-4" />

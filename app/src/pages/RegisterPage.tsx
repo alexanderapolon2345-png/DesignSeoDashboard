@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/store";
 import { register, clearError } from "@/store/slices/authSlice";
@@ -16,7 +16,6 @@ import {
 
 const RegisterPage = () => {
   const dispatch = useDispatch();
-  const navigate = useNavigate();
   const { loading, error } = useSelector((state: RootState) => state.auth);
   const [formData, setFormData] = useState({
     email: "",
@@ -48,8 +47,7 @@ const RegisterPage = () => {
           name: formData.name,
         }) as any
       ).unwrap();
-      // setRegistrationSuccess(true);
-      navigate("/");
+      setRegistrationSuccess(true);
     } catch (error) {
       // Error is handled by Redux
     }
@@ -63,7 +61,7 @@ const RegisterPage = () => {
   };
 
   const goBackToMarketing = () => {
-    window.location.href = import.meta.env.VITE_MARKETING_URL;
+    window.location.href = "http://localhost:3000";
   };
 
   const passwordsMatch = formData.password === formData.confirmPassword;

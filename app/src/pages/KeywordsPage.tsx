@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "../store";
-import { fetchKeywords, addKeyword } from "@/store/slices/projectSlice";
+import { fetchKeywords, addKeyword } from "@/store/slices/clientSlice";
 import {
   Plus,
   Search,

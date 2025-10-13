@@ -2,17 +2,34 @@ import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/store";
 import { fetchAgencies, inviteAgency } from "@/store/slices/agencySlice";
+import { Client, fetchClients } from "@/store/slices/clientSlice";
 import Layout from "@/components/Layout";
-import { Plus, Users, Building2, Mail } from "lucide-react";
+import { Plus, Users, Building2, Mail, Trash2, Edit } from "lucide-react";
+import { format } from "date-fns";
 
-const AdminDashboard = () => {
+const SuperAdminDashboard = () => {
   const dispatch = useDispatch();
   const { agencies, loading } = useSelector((state: RootState) => state.agency);
+  const { clients } = useSelector((state: RootState) => state.client);
+
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Number>(0);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: "", name: "" });
 
+  const getStatusBadge = (status: string) => {
+    const styles = {
+      ACTIVE: "bg-green-100 text-green-800",
+      PENDING: "bg-yellow-100 text-yellow-800",
+      REJECTED: "bg-gray-100 text-gray-800",
+    };
+    return styles[status as keyof typeof styles] || styles.ACTIVE;
+  };
+
   useEffect(() => {
     dispatch(fetchAgencies() as any);
+    dispatch(fetchClients() as any);
   }, [dispatch]);
 
   const handleInvite = async (e: React.FormEvent) => {
@@ -23,6 +40,16 @@ const AdminDashboard = () => {
     dispatch(fetchAgencies() as any);
   };
 
+
+  const handleEditClick = (client: Client) => {
+    setSelectedClient(client);
+    setMode(1);
+    setOpen(true);
+  };
+
+  const handleDeleteTask = (id: string) => {
+  }
+
   return (
     <Layout title="Admin Dashboard">
       <div className="space-y-8">
@@ -30,7 +57,7 @@ const AdminDashboard = () => {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">
-              Admin Dashboard
+              Super Admin Dashboard
             </h1>
             <p className="text-gray-600 mt-2">
               Manage agencies and oversee the platform
@@ -130,11 +157,19 @@ const AdminDashboard = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-600">
+                      <a
+                        className="text-sm text-gray-600 underline"
+                        href={
+                          agency.subdomain
+                            ? `https://${agency.subdomain}.yourseodashboard.com`
+                            : "-"
+                        }
+                        target="_blank" rel="noopener noreferrer"
+                      >
                         {agency.subdomain
                           ? `${agency.subdomain}.yourseodashboard.com`
-                          : "Not set"}
-                      </div>
+                          : "-"}
+                      </a>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
@@ -150,6 +185,77 @@ const AdminDashboard = () => {
                       <button className="text-primary-600 hover:text-primary-900">
                         Manage
                       </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Clients Table */}
+        <div className="bg-white rounded-xl border border-gray-200">
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-900">Clients</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Domain</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Industy</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Targets</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {clients.map((client) => (
+                  <tr key={client.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-xs flex items-center gap-1">
+                      <Building2 className="text-blue-600" size={18} />
+                      {client.name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      <a
+                        className="text-sm text-gray-600 underline"
+                        href={client.domain.startsWith("http") ? client.domain : `https://${client.domain}`}
+                        target="_blank" rel="noopener noreferrer"
+                      >
+                        {client.domain}
+                      </a>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs">{client.industry ?? "-"}</td>
+                    <td className="flex gap-1 px-6 py-4 whitespace-nowrap text-xs">
+                      {client.targets?.map((target) => (
+                        <div className="py-1 px-3 bg-blue-50 text-center rounded-full text-blue-600 font-semibold">{target}</div>
+                      ))}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-bold rounded-full ${getStatusBadge(client.status)}`}>
+                        {client.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      {client.createdAt ? format(new Date(client.createdAt), "yyyy-MM-dd") : "-"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      <div className="flex items-center space-x-2">
+                        <button
+                          className="p-1 text-gray-400 hover:text-primary-600 transition-colors"
+                          onClick={() => handleEditClick(client)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                          onClick={() => handleDeleteTask(client.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -218,4 +324,4 @@ const AdminDashboard = () => {
   );
 };
 
-export default AdminDashboard;
+export default SuperAdminDashboard;
