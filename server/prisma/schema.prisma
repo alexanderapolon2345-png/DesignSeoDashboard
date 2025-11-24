@@ -188,6 +188,13 @@ model Client {
   password String?
   notes    String?
 
+  // GA4 Connection
+  ga4AccessToken  String?
+  ga4RefreshToken String?
+  ga4PropertyId   String?
+  ga4AccountEmail String?
+  ga4ConnectedAt  DateTime?
+
   userId String
   user   User   @relation(fields: [userId], references: [id])
   Task   Task[]

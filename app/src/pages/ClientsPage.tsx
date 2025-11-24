@@ -81,7 +81,7 @@ const ClientsPage = () => {
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await dispatch(createClient({ data: {
+      const result = await dispatch(createClient({ data: {
         name: clientForm.name,
         domain: clientForm.domain,
         industry: clientForm.industry || undefined,
@@ -89,7 +89,7 @@ const ClientsPage = () => {
       } }) as any);
       setClientForm({ name: "", domain: "", industry: "", targets: [] });
       setShowCreateModal(false);
-      toast.success("Client created successfully!");
+      toast.success("Client created successfully! Please connect GA4 to view analytics data.");
       // Refresh clients list
       dispatch(fetchClients() as any);
     } catch (error: any) {

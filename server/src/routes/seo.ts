@@ -1671,8 +1671,31 @@ router.get("/dashboard/:clientId", authenticateToken, async (req, res) => {
     const days = parseInt(period as string);
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const endDate = new Date();
 
-    // Get latest report
+    // Check if GA4 is connected
+    const isGA4Connected = !!(
+      client.ga4RefreshToken &&
+      client.ga4PropertyId &&
+      client.ga4ConnectedAt
+    );
+
+    let ga4Data = null;
+    let trafficDataSource = "none";
+
+    // Try to fetch from GA4 if connected
+    if (isGA4Connected) {
+      try {
+        const { fetchGA4TrafficData } = await import("../lib/ga4.js");
+        ga4Data = await fetchGA4TrafficData(clientId, startDate, endDate);
+        trafficDataSource = "ga4";
+      } catch (ga4Error: any) {
+        console.error("Failed to fetch GA4 data:", ga4Error);
+        // Continue with fallback data sources
+      }
+    }
+
+    // Get latest report (fallback if GA4 not available)
     const latestReport = await prisma.seoReport.findFirst({
       where: {
         clientId,
@@ -1726,7 +1749,7 @@ router.get("/dashboard/:clientId", authenticateToken, async (req, res) => {
       }
     });
 
-    // Read traffic sources from database
+    // Read traffic sources from database (fallback)
     const trafficSources = await prisma.trafficSource.findMany({
       where: { clientId },
     });
@@ -1746,28 +1769,42 @@ router.get("/dashboard/:clientId", authenticateToken, async (req, res) => {
       rankSampleSize: firstSource.rankSampleSize,
     } : null;
 
-    const totalSessions =
-      trafficSourceSummary?.totalEstimatedTraffic ??
-      (latestReport ? latestReport.totalSessions : keywordStats._count.id ?? 0);
+    // Use GA4 data if available, otherwise fallback to other sources
+    const totalSessions = ga4Data?.totalSessions ??
+      (trafficSourceSummary?.totalEstimatedTraffic ??
+      (latestReport ? latestReport.totalSessions : null));
 
-    const organicSessions =
-      trafficSourceSummary?.organicEstimatedTraffic ??
-      (latestReport ? latestReport.organicSessions : null);
+    const organicSessions = ga4Data?.organicSessions ??
+      (trafficSourceSummary?.organicEstimatedTraffic ??
+      (latestReport ? latestReport.organicSessions : null));
+
+    const totalUsers = ga4Data?.totalUsers ?? null;
+    const firstTimeVisitors = ga4Data?.firstTimeVisitors ?? null;
+    const engagedVisitors = ga4Data?.engagedVisitors ?? null;
+    const newUsersTrend = ga4Data?.newUsersTrend ?? [];
+    const totalUsersTrend = ga4Data?.totalUsersTrend ?? [];
 
     const averagePosition =
       trafficSourceSummary?.averageRank ??
       (latestReport?.averagePosition ?? keywordStats._avg.currentPosition ?? null);
 
-    const conversions = latestReport?.conversions ?? null;
+    const conversions = ga4Data?.conversions ??
+      (latestReport?.conversions ?? null);
 
     res.json({
       totalSessions,
       organicSessions,
       averagePosition,
       conversions,
+      totalUsers,
+      firstTimeVisitors,
+      engagedVisitors,
+      newUsersTrend,
+      totalUsersTrend,
+      isGA4Connected,
       dataSources: {
-        traffic: trafficSourceSummary ? "database" : latestReport ? "seo_report" : "fallback",
-        conversions: latestReport ? "seo_report" : "unknown",
+        traffic: trafficDataSource === "ga4" ? "ga4" : trafficSourceSummary ? "database" : latestReport ? "seo_report" : "none",
+        conversions: trafficDataSource === "ga4" ? "ga4" : latestReport ? "seo_report" : "none",
       },
       trafficSourceSummary,
       latestReport,
@@ -2934,6 +2971,30 @@ router.get("/agency/dashboard", authenticateToken, async (req, res) => {
       accessibleClientIds = clients.map(c => c.id);
     }
 
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const endDate = new Date();
+
+    const ga4Summary: {
+      websiteVisitors: number;
+      organicSessions: number;
+      firstTimeVisitors: number;
+      engagedVisitors: number;
+      connectedClients: number;
+      totalClients: number;
+      newUsersTrend: Array<{ date: string; value: number }>;
+      totalUsersTrend: Array<{ date: string; value: number }>;
+    } = {
+      websiteVisitors: 0,
+      organicSessions: 0,
+      firstTimeVisitors: 0,
+      engagedVisitors: 0,
+      connectedClients: 0,
+      totalClients: accessibleClientIds.length,
+      newUsersTrend: [],
+      totalUsersTrend: [],
+    };
+
     if (accessibleClientIds.length === 0) {
       return res.json({
         totalKeywords: 0,
@@ -2945,7 +3006,71 @@ router.get("/agency/dashboard", authenticateToken, async (req, res) => {
         topPages: [],
         rankingTrends: [],
         trafficTrends: [],
+        ga4Summary,
       });
+    }
+
+    const ga4ConnectedClients = await prisma.client.findMany({
+      where: {
+        id: { in: accessibleClientIds },
+        ga4RefreshToken: { not: null },
+        ga4PropertyId: { not: null },
+      },
+      select: { id: true },
+    });
+
+    if (ga4ConnectedClients.length > 0) {
+      try {
+        const { fetchGA4TrafficData } = await import("../lib/ga4.js");
+        const ga4Results = await Promise.allSettled(
+          ga4ConnectedClients.map((client) =>
+            fetchGA4TrafficData(client.id, startDate, endDate)
+          )
+        );
+
+        const newUsersTrendMap = new Map<string, number>();
+        const totalUsersTrendMap = new Map<string, number>();
+
+        ga4Results.forEach((result) => {
+          if (result.status !== "fulfilled") {
+            console.warn("Failed to fetch GA4 data for a client:", result.reason);
+            return;
+          }
+
+          const data = result.value;
+          ga4Summary.websiteVisitors += data.totalUsers || 0;
+          ga4Summary.organicSessions += data.organicSessions || 0;
+          ga4Summary.firstTimeVisitors += data.firstTimeVisitors || 0;
+          ga4Summary.engagedVisitors += data.engagedVisitors || 0;
+          ga4Summary.connectedClients += 1;
+
+          data.newUsersTrend?.forEach((point) => {
+            if (!point?.date) return;
+            newUsersTrendMap.set(
+              point.date,
+              (newUsersTrendMap.get(point.date) || 0) + (point.value || 0)
+            );
+          });
+
+          data.totalUsersTrend?.forEach((point) => {
+            if (!point?.date) return;
+            totalUsersTrendMap.set(
+              point.date,
+              (totalUsersTrendMap.get(point.date) || 0) + (point.value || 0)
+            );
+          });
+        });
+
+        ga4Summary.newUsersTrend = Array.from(newUsersTrendMap.entries())
+          .sort(([a], [b]) => (a > b ? 1 : -1))
+          .map(([date, value]) => ({ date, value }));
+
+        ga4Summary.totalUsersTrend = Array.from(totalUsersTrendMap.entries())
+          .sort(([a], [b]) => (a > b ? 1 : -1))
+          .map(([date, value]) => ({ date, value }));
+      } catch (ga4Error) {
+        console.warn("Failed to aggregate GA4 data for agency dashboard:", ga4Error);
+      }
     }
 
     // Aggregate keyword stats
@@ -3045,6 +3170,7 @@ router.get("/agency/dashboard", authenticateToken, async (req, res) => {
       topPages,
       rankingTrends,
       trafficTrends,
+      ga4Summary,
     });
   } catch (error: any) {
     console.error("Agency dashboard fetch error:", error);

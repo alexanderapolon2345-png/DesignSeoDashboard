@@ -9,8 +9,9 @@ import {
   TrendingUp,
   TrendingDown,
   Search,
-  MousePointer,
   Users,
+  UserPlus,
+  Activity,
   Clock,
   Plus,
   Trash2,
@@ -29,7 +30,6 @@ import toast from "react-hot-toast";
 import { useSelector } from "react-redux";
 import { RootState } from "@/store";
 import {
-  sampleReports,
   visitorSourceData,
   eventsData,
   conversionsData,
@@ -82,11 +82,19 @@ interface TopPageItem {
   paidTraffic: number;
 }
 
+interface TrendPoint {
+  date: string;
+  value: number;
+}
+
 interface DashboardSummary {
   totalSessions: number | null;
   organicSessions: number | null;
   averagePosition: number | null;
   conversions: number | null;
+  totalUsers: number | null;
+  firstTimeVisitors: number | null;
+  engagedVisitors: number | null;
   dataSources?: {
     traffic?: string;
     conversions?: string;
@@ -103,6 +111,8 @@ interface DashboardSummary {
   keywordStats?: any;
   backlinkStats?: any;
   topKeywords?: any[];
+  newUsersTrend?: TrendPoint[];
+  totalUsersTrend?: TrendPoint[];
 }
 
 const TRAFFIC_SOURCE_COLORS: Record<string, string> = {
@@ -146,6 +156,35 @@ const sampleClientReports: ClientReport[] = [
   },
 ];
 
+const parseNumericValue = (value: any): number | null => {
+  if (value === undefined || value === null) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const normalizeTrendPoints = (trend: any): TrendPoint[] => {
+  if (!Array.isArray(trend)) return [];
+  return trend
+    .map((point) => ({
+      date: typeof point?.date === "string" ? point.date : "",
+      value: Number(point?.value ?? 0) || 0,
+    }))
+    .filter((point) => Boolean(point.date));
+};
+
+const formatDashboardSummary = (payload: any): DashboardSummary => ({
+  ...payload,
+  totalSessions: parseNumericValue(payload?.totalSessions),
+  organicSessions: parseNumericValue(payload?.organicSessions),
+  averagePosition: parseNumericValue(payload?.averagePosition),
+  conversions: parseNumericValue(payload?.conversions),
+  totalUsers: parseNumericValue(payload?.totalUsers),
+  firstTimeVisitors: parseNumericValue(payload?.firstTimeVisitors),
+  engagedVisitors: parseNumericValue(payload?.engagedVisitors),
+  newUsersTrend: normalizeTrendPoints(payload?.newUsersTrend),
+  totalUsersTrend: normalizeTrendPoints(payload?.totalUsersTrend),
+});
+
 const ClientDashboardPage: React.FC = () => {
   const { clientId } = useParams();
   const navigate = useNavigate();
@@ -175,6 +214,10 @@ const ClientDashboardPage: React.FC = () => {
   const [serverReport, setServerReport] = useState<any | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [ga4Connected, setGa4Connected] = useState<boolean | null>(null);
+  const [ga4Connecting, setGa4Connecting] = useState(false);
+  const [showGA4Modal, setShowGA4Modal] = useState(false);
+  const [ga4PropertyId, setGa4PropertyId] = useState("");
   const [refreshingDashboard, setRefreshingDashboard] = useState(false);
   const [refreshingTopPages, setRefreshingTopPages] = useState(false);
   const [refreshingBacklinks, setRefreshingBacklinks] = useState(false);
@@ -246,19 +289,7 @@ const ClientDashboardPage: React.FC = () => {
       // Refetch dashboard data
       const res = await api.get(`/seo/dashboard/${clientId}?period=${dateRange}`);
       const payload = res.data || {};
-      setDashboardSummary({
-        ...payload,
-        totalSessions: payload?.totalSessions !== undefined && payload?.totalSessions !== null ? Number(payload.totalSessions) : null,
-        organicSessions: payload?.organicSessions !== undefined && payload?.organicSessions !== null ? Number(payload.organicSessions) : null,
-        averagePosition: payload?.averagePosition !== undefined && payload?.averagePosition !== null ? Number(payload.averagePosition) : null,
-        conversions: payload?.conversions !== undefined && payload?.conversions !== null ? Number(payload.conversions) : null,
-        dataSources: payload?.dataSources,
-        trafficSourceSummary: payload?.trafficSourceSummary,
-        latestReport: payload?.latestReport,
-        keywordStats: payload?.keywordStats,
-        backlinkStats: payload?.backlinkStats,
-        topKeywords: payload?.topKeywords,
-      });
+      setDashboardSummary(formatDashboardSummary(payload));
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Failed to refresh dashboard data");
     } finally {
@@ -421,6 +452,68 @@ const ClientDashboardPage: React.FC = () => {
     fetchClient();
   }, [clientId, client, navigate]);
 
+  // Check GA4 connection status and handle OAuth callback
+  useEffect(() => {
+    if (!clientId) return;
+    
+    // Check for OAuth callback parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const ga4TokensReceived = urlParams.get('ga4_tokens_received');
+    const ga4Connected = urlParams.get('ga4_connected');
+    const ga4Error = urlParams.get('ga4_error');
+    
+    if (ga4TokensReceived === 'true') {
+      toast.success('OAuth successful! Please enter your GA4 Property ID.');
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+      // Show property ID modal
+      setShowGA4Modal(true);
+      setGa4Connecting(false);
+    } else if (ga4Connected === 'true') {
+      toast.success('GA4 connected successfully!');
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+      // Refresh status
+      setGa4Connected(true);
+      setShowGA4Modal(false);
+      setGa4Connecting(false);
+      // Refresh dashboard data
+      const fetchSummary = async () => {
+        try {
+          const res = await api.get(`/seo/dashboard/${clientId}?period=${dateRange}`);
+          const payload = res.data || {};
+          setDashboardSummary(formatDashboardSummary(payload));
+        } catch (error) {
+          console.error('Failed to refresh dashboard:', error);
+        }
+      };
+      fetchSummary();
+    } else if (ga4Error) {
+      toast.error(`GA4 connection failed: ${ga4Error}`);
+      window.history.replaceState({}, '', window.location.pathname);
+      setGa4Connecting(false);
+    }
+    
+    // Always check GA4 status on mount
+    const checkGA4Status = async () => {
+      try {
+        const res = await api.get(`/clients/${clientId}/ga4/status`);
+        const isConnected = res.data?.connected || false;
+        const hasTokens = res.data?.hasTokens || false;
+        setGa4Connected(isConnected);
+        
+        // If tokens exist but not connected (property ID missing), show modal
+        if (hasTokens && !isConnected && !ga4TokensReceived && !ga4Connected && !ga4Error) {
+          setShowGA4Modal(true);
+        }
+      } catch (error: any) {
+        console.error("Failed to check GA4 status:", error);
+        setGa4Connected(false);
+      }
+    };
+    checkGA4Status();
+  }, [clientId, dateRange]);
+
   useEffect(() => {
     if (!clientId) return;
     const fetchSummary = async () => {
@@ -428,28 +521,10 @@ const ClientDashboardPage: React.FC = () => {
         setFetchingSummary(true);
         const res = await api.get(`/seo/dashboard/${clientId}?period=${dateRange}`);
         const payload = res.data || {};
-        setDashboardSummary({
-          ...payload,
-          totalSessions:
-            payload?.totalSessions !== undefined && payload?.totalSessions !== null
-              ? Number(payload.totalSessions)
-              : null,
-          organicSessions:
-            payload?.organicSessions !== undefined && payload?.organicSessions !== null
-              ? Number(payload.organicSessions)
-              : null,
-          averagePosition:
-            payload?.averagePosition !== undefined && payload?.averagePosition !== null
-              ? Number(payload.averagePosition)
-              : null,
-          conversions:
-            payload?.conversions !== undefined && payload?.conversions !== null
-              ? Number(payload.conversions)
-              : null,
-        });
+        setGa4Connected(payload?.isGA4Connected || false);
+        setDashboardSummary(formatDashboardSummary(payload));
       } catch (error: any) {
-        console.warn("Failed to fetch dashboard summary, using sample data", error);
-        // Don't show toast for this as it falls back to sample data
+        console.warn("Failed to fetch dashboard summary", error);
         setDashboardSummary(null);
       } finally {
         setFetchingSummary(false);
@@ -657,49 +732,217 @@ const ClientDashboardPage: React.FC = () => {
     return trafficSources;
   }, [trafficSources]);
 
-  const totalVisitorsDisplay = useMemo(() => {
+  const handleConnectGA4 = async () => {
+    if (!clientId) return;
+    try {
+      setGa4Connecting(true);
+      // Request auth URL with popup parameter
+      const res = await api.get(`/clients/${clientId}/ga4/auth-url?popup=true`);
+      const authUrl = res.data?.authUrl;
+      if (authUrl) {
+        // Open GA4 OAuth flow in a popup window
+        const width = 500;
+        const height = 600;
+        const left = (window.screen.width - width) / 2;
+        const top = (window.screen.height - height) / 2;
+        
+        const popup = window.open(
+          authUrl,
+          'ga4-oauth',
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+        );
+
+        if (!popup) {
+          toast.error('Please allow popups to connect GA4');
+          setGa4Connecting(false);
+          return;
+        }
+
+        let messageListener: (event: MessageEvent) => void;
+        let manualCloseTimeout: number | null = null;
+
+        const closePopupSafely = () => {
+          try {
+            popup.close();
+          } catch (err) {
+            // Ignore COOP restrictions when closing
+          }
+        };
+
+        const cleanupPopup = () => {
+          if (messageListener) {
+            window.removeEventListener('message', messageListener);
+          }
+          if (manualCloseTimeout !== null) {
+            window.clearTimeout(manualCloseTimeout);
+            manualCloseTimeout = null;
+          }
+        };
+
+        // Listen for messages from the popup
+        messageListener = (event: MessageEvent) => {
+          // Accept messages from same origin or backend origin
+          // The popup callback page is served from the backend, so messages come from backend origin
+          try {
+            const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+            const backendOrigin = new URL(backendUrl).origin;
+            
+            // Allow messages from same origin or backend origin
+            if (event.origin !== window.location.origin && event.origin !== backendOrigin) {
+              return;
+            }
+          } catch (e) {
+            // If URL parsing fails, only accept same-origin messages
+            if (event.origin !== window.location.origin) {
+              return;
+            }
+          }
+
+          if (event.data.type === 'GA4_OAUTH_SUCCESS') {
+            cleanupPopup();
+            closePopupSafely();
+            toast.success('OAuth successful! Please enter your GA4 Property ID.');
+            setShowGA4Modal(true);
+            setGa4Connecting(false);
+          } else if (event.data.type === 'GA4_OAUTH_ERROR') {
+            cleanupPopup();
+            closePopupSafely();
+            toast.error(`GA4 connection failed: ${event.data.error || 'Unknown error'}`);
+            setGa4Connecting(false);
+          }
+        };
+
+        window.addEventListener('message', messageListener);
+
+        // Check if popup is closed manually
+        const checkClosed = window.setInterval(() => {
+          let isClosed = false;
+          try {
+            // Some browsers block direct access when COOP isolates the popup,
+            // so wrap in try/catch and assume closed on error.
+            isClosed = !popup || popup.closed;
+          } catch (err) {
+            isClosed = true;
+          }
+
+          if (isClosed) {
+            window.clearInterval(checkClosed);
+            window.removeEventListener('message', messageListener);
+            if (ga4Connecting) {
+              setGa4Connecting(false);
+            }
+          }
+        }, 1000);
+      }
+    } catch (error: any) {
+      console.error("Failed to connect GA4:", error);
+      toast.error(error.response?.data?.message || "Failed to connect GA4");
+      setGa4Connecting(false);
+    }
+  };
+
+  const handleSubmitPropertyId = async () => {
+    if (!clientId || !ga4PropertyId.trim()) {
+      toast.error("Please enter a valid Property ID");
+      return;
+    }
+    try {
+      setGa4Connecting(true);
+      await api.post(`/clients/${clientId}/ga4/connect`, {
+        propertyId: ga4PropertyId.trim(),
+      });
+      toast.success("GA4 connected successfully!");
+      setShowGA4Modal(false);
+      setGa4PropertyId("");
+      setGa4Connected(true);
+      // Refresh dashboard data
+      const res = await api.get(`/seo/dashboard/${clientId}?period=${dateRange}`);
+      const payload = res.data || {};
+      setDashboardSummary(formatDashboardSummary(payload));
+    } catch (error: any) {
+      console.error("Failed to connect GA4 property:", error);
+      toast.error(error.response?.data?.message || "Failed to connect GA4 property");
+    } finally {
+      setGa4Connecting(false);
+    }
+  };
+
+  const websiteVisitorsDisplay = useMemo(() => {
     if (fetchingSummary) return "...";
-    if (dashboardSummary?.totalSessions !== null && dashboardSummary?.totalSessions !== undefined) {
-      const numeric = Number(dashboardSummary.totalSessions);
+    // Show "—" when GA4 is not connected (null or false)
+    if (ga4Connected !== true) return "—";
+    if (dashboardSummary?.totalUsers !== null && dashboardSummary?.totalUsers !== undefined) {
+      const numeric = Number(dashboardSummary.totalUsers);
       if (Number.isFinite(numeric)) {
         return Math.round(numeric).toLocaleString();
       }
     }
-    return "68,420";
-  }, [dashboardSummary?.totalSessions, fetchingSummary]);
+    return "—";
+  }, [dashboardSummary?.totalUsers, fetchingSummary, ga4Connected]);
 
   const organicTrafficDisplay = useMemo(() => {
     if (fetchingSummary) return "...";
+    // Show "—" when GA4 is not connected (null or false)
+    if (ga4Connected !== true) return "—";
     if (dashboardSummary?.organicSessions !== null && dashboardSummary?.organicSessions !== undefined) {
       const numeric = Number(dashboardSummary.organicSessions);
       if (Number.isFinite(numeric)) {
         return Math.round(numeric).toLocaleString();
       }
     }
-    return "51,903";
-  }, [dashboardSummary?.organicSessions, fetchingSummary]);
+    return "—";
+  }, [dashboardSummary?.organicSessions, fetchingSummary, ga4Connected]);
 
-  const averagePositionDisplay = useMemo(() => {
+  const firstTimeVisitorsDisplay = useMemo(() => {
     if (fetchingSummary) return "...";
-    if (dashboardSummary?.averagePosition !== null && dashboardSummary?.averagePosition !== undefined) {
-      const numeric = Number(dashboardSummary.averagePosition);
-      if (Number.isFinite(numeric)) {
-        return numeric.toFixed(1);
-      }
-    }
-    return "8.2";
-  }, [dashboardSummary?.averagePosition, fetchingSummary]);
-
-  const conversionsDisplay = useMemo(() => {
-    if (fetchingSummary) return "...";
-    if (dashboardSummary?.conversions !== null && dashboardSummary?.conversions !== undefined) {
-      const numeric = Number(dashboardSummary.conversions);
+    // Show "—" when GA4 is not connected (null or false)
+    if (ga4Connected !== true) return "—";
+    if (dashboardSummary?.firstTimeVisitors !== null && dashboardSummary?.firstTimeVisitors !== undefined) {
+      const numeric = Number(dashboardSummary.firstTimeVisitors);
       if (Number.isFinite(numeric)) {
         return Math.round(numeric).toLocaleString();
       }
     }
-    return "72";
-  }, [dashboardSummary?.conversions, fetchingSummary]);
+    return "—";
+  }, [dashboardSummary?.firstTimeVisitors, fetchingSummary, ga4Connected]);
+
+  const engagedVisitorsDisplay = useMemo(() => {
+    if (fetchingSummary) return "...";
+    if (ga4Connected !== true) return "—";
+    if (dashboardSummary?.engagedVisitors !== null && dashboardSummary?.engagedVisitors !== undefined) {
+      const numeric = Number(dashboardSummary.engagedVisitors);
+      if (Number.isFinite(numeric)) {
+        return Math.round(numeric).toLocaleString();
+      }
+    }
+    return "—";
+  }, [dashboardSummary?.engagedVisitors, fetchingSummary, ga4Connected]);
+
+  const newUsersTrendData = useMemo(() => {
+    if (!dashboardSummary?.newUsersTrend?.length) return [];
+    return dashboardSummary.newUsersTrend.map((point) => {
+      const dateObj = new Date(point.date);
+      const label = Number.isNaN(dateObj.getTime()) ? point.date : format(dateObj, "MMM d");
+      const value = Number(point.value ?? 0);
+      return {
+        name: label,
+        newUsers: Number.isFinite(value) ? value : 0,
+      };
+    });
+  }, [dashboardSummary?.newUsersTrend]);
+
+  const totalUsersTrendData = useMemo(() => {
+    if (!dashboardSummary?.totalUsersTrend?.length) return [];
+    return dashboardSummary.totalUsersTrend.map((point) => {
+      const dateObj = new Date(point.date);
+      const label = Number.isNaN(dateObj.getTime()) ? point.date : format(dateObj, "MMM d");
+      const value = Number(point.value ?? 0);
+      return {
+        name: label,
+        totalUsers: Number.isFinite(value) ? value : 0,
+      };
+    });
+  }, [dashboardSummary?.totalUsersTrend]);
 
   if (!clientId) {
     return (
@@ -848,19 +1091,65 @@ const ClientDashboardPage: React.FC = () => {
         <>
           {activeTab === "dashboard" && (
             <div ref={dashboardContentRef} className="space-y-8">
+              {/* GA4 Connection Banner */}
+              {/* Show banner when GA4 is not connected (null = checking, false = confirmed not connected) */}
+              {(ga4Connected === false || ga4Connected === null) && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-yellow-900 mb-2">
+                        Connect Google Analytics 4
+                      </h3>
+                      <p className="text-sm text-yellow-800 mb-4">
+                        To view real traffic and analytics data, please connect your Google Analytics 4 account. 
+                        Without GA4 connection, traffic metrics cannot be displayed.
+                      </p>
+                      <button
+                        onClick={handleConnectGA4}
+                        disabled={ga4Connecting}
+                        className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors flex items-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {ga4Connecting ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Search className="h-4 w-4" />
+                            <span>Connect GA4</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setGa4Connected(null)}
+                      className="text-yellow-600 hover:text-yellow-800 ml-4"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-xl border border-gray-200">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Total Web Visitors</p>
-                      <p className="text-2xl font-bold text-gray-900">{totalVisitorsDisplay}</p>
+                      <p className="text-sm font-medium text-gray-600">Website Visitors</p>
+                      <p className="text-2xl font-bold text-gray-900">{websiteVisitorsDisplay}</p>
                     </div>
                     <Users className="h-8 w-8 text-blue-500" />
                   </div>
-                  <div className="mt-4 flex items-center space-x-2">
-                    <TrendingUp className="h-4 w-4 text-green-500" />
-                    <span className="text-sm text-green-600">+15.3% from last month</span>
-                  </div>
+                  {ga4Connected ? (
+                    <div className="mt-4 flex items-center space-x-2">
+                      <TrendingUp className="h-4 w-4 text-green-500" />
+                      <span className="text-sm text-green-600">Real-time data from GA4</span>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-white p-6 rounded-xl border border-gray-200">
@@ -871,74 +1160,116 @@ const ClientDashboardPage: React.FC = () => {
                     </div>
                     <Search className="h-8 w-8 text-green-500" />
                   </div>
-                  <div className="mt-4 flex items-center space-x-2">
-                    <TrendingUp className="h-4 w-4 text-green-500" />
-                    <span className="text-sm text-green-600">+8.3% from last month</span>
-                  </div>
+                  {ga4Connected ? (
+                    <div className="mt-4 flex items-center space-x-2">
+                      <TrendingUp className="h-4 w-4 text-green-500" />
+                      <span className="text-sm text-green-600">Real-time data from GA4</span>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-white p-6 rounded-xl border border-gray-200">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Average Position</p>
-                      <p className="text-2xl font-bold text-gray-900">{averagePositionDisplay}</p>
+                      <p className="text-sm font-medium text-gray-600">First Time Visitors</p>
+                      <p className="text-2xl font-bold text-gray-900">{firstTimeVisitorsDisplay}</p>
                     </div>
-                    <MousePointer className="h-8 w-8 text-purple-500" />
+                    <UserPlus className="h-8 w-8 text-purple-500" />
                   </div>
-                  <div className="mt-4 flex items-center space-x-2">
-                    <TrendingDown className="h-4 w-4 text-red-500" />
-                    <span className="text-sm text-red-500">-0.4 vs last month</span>
-                  </div>
+                  {ga4Connected ? (
+                    <div className="mt-4 flex items-center space-x-2">
+                      <TrendingUp className="h-4 w-4 text-green-500" />
+                      <span className="text-sm text-green-600">Real-time data from GA4</span>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-white p-6 rounded-xl border border-gray-200">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Conversions</p>
-                      <p className="text-2xl font-bold text-gray-900">{conversionsDisplay}</p>
+                      <p className="text-sm font-medium text-gray-600">Engaged Visitors</p>
+                      <p className="text-2xl font-bold text-gray-900">{engagedVisitorsDisplay}</p>
                     </div>
-                    <TrendingUp className="h-8 w-8 text-orange-500" />
+                    <Activity className="h-8 w-8 text-orange-500" />
                   </div>
-                  <div className="mt-4 flex items-center space-x-2">
-                    <TrendingUp className="h-4 w-4 text-green-500" />
-                    <span className="text-sm text-green-600">+6.1% from last month</span>
-                  </div>
+                  {ga4Connected ? (
+                    <div className="mt-4 flex items-center space-x-2">
+                      <TrendingUp className="h-4 w-4 text-green-500" />
+                      <span className="text-sm text-green-600">Real-time data from GA4</span>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white p-6 rounded-xl border border-gray-200">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">New User Visitors Trending</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">New Users Trending</h3>
                     {fetchingSummary && <span className="text-xs text-gray-400">Updating...</span>}
                   </div>
                   <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={sampleReports}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
-                        <Line type="monotone" dataKey="newUsers" stroke="#3B82F6" strokeWidth={2} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    {ga4Connected ? (
+                      newUsersTrendData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={newUsersTrendData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="newUsers" stroke="#3B82F6" strokeWidth={2} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                          No GA4 new-user data for this date range.
+                        </div>
+                      )
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                        Connect GA4 to view this chart.
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="bg-white p-6 rounded-xl border border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Total User Visitors Trending</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Total Users Trending</h3>
                   <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={sampleReports}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
-                        <Line type="monotone" dataKey="totalUsers" stroke="#10B981" strokeWidth={2} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    {ga4Connected ? (
+                      totalUsersTrendData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={totalUsersTrendData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="totalUsers" stroke="#10B981" strokeWidth={2} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                          No GA4 total-user data for this date range.
+                        </div>
+                      )
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                        Connect GA4 to view this chart.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1518,8 +1849,8 @@ const ClientDashboardPage: React.FC = () => {
                   <div className="bg-white p-6 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-gray-600">Total Web Visitors</p>
-                        <p className="text-2xl font-bold text-gray-900">{totalVisitorsDisplay}</p>
+                        <p className="text-sm font-medium text-gray-600">Website Visitors</p>
+                        <p className="text-2xl font-bold text-gray-900">{websiteVisitorsDisplay}</p>
                       </div>
                       <Users className="h-8 w-8 text-blue-500" />
                     </div>
@@ -1546,65 +1877,101 @@ const ClientDashboardPage: React.FC = () => {
                   <div className="bg-white p-6 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-gray-600">Average Position</p>
-                        <p className="text-2xl font-bold text-gray-900">{averagePositionDisplay}</p>
+                        <p className="text-sm font-medium text-gray-600">First Time Visitors</p>
+                        <p className="text-2xl font-bold text-gray-900">{firstTimeVisitorsDisplay}</p>
                       </div>
-                      <MousePointer className="h-8 w-8 text-purple-500" />
+                      <UserPlus className="h-8 w-8 text-purple-500" />
                     </div>
-                    <div className="mt-4 flex items-center space-x-2">
-                      <TrendingDown className="h-4 w-4 text-red-500" />
-                      <span className="text-sm text-red-500">-0.4 vs last month</span>
-                    </div>
+                    {ga4Connected ? (
+                      <div className="mt-4 flex items-center space-x-2">
+                        <TrendingUp className="h-4 w-4 text-green-500" />
+                        <span className="text-sm text-green-600">Real-time data from GA4</span>
+                      </div>
+                    ) : (
+                      <div className="mt-4">
+                        <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="bg-white p-6 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-gray-600">Conversions</p>
-                        <p className="text-2xl font-bold text-gray-900">{conversionsDisplay}</p>
+                        <p className="text-sm font-medium text-gray-600">Engaged Visitors</p>
+                        <p className="text-2xl font-bold text-gray-900">{engagedVisitorsDisplay}</p>
                       </div>
-                      <TrendingUp className="h-8 w-8 text-orange-500" />
+                      <Activity className="h-8 w-8 text-orange-500" />
                     </div>
-                    <div className="mt-4 flex items-center space-x-2">
-                      <TrendingUp className="h-4 w-4 text-green-500" />
-                      <span className="text-sm text-green-600">+6.1% from last month</span>
-                    </div>
+                    {ga4Connected ? (
+                      <div className="mt-4 flex items-center space-x-2">
+                        <TrendingUp className="h-4 w-4 text-green-500" />
+                        <span className="text-sm text-green-600">Real-time data from GA4</span>
+                      </div>
+                    ) : (
+                      <div className="mt-4">
+                        <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="bg-white p-6 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900">New User Visitors Trending</h3>
+                      <h3 className="text-lg font-semibold text-gray-900">New Users Trending</h3>
                       {fetchingSummary && <span className="text-xs text-gray-400">Updating...</span>}
                     </div>
                     <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={sampleReports}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          <Line type="monotone" dataKey="newUsers" stroke="#3B82F6" strokeWidth={2} />
-                        </LineChart>
-                      </ResponsiveContainer>
+                      {ga4Connected ? (
+                        newUsersTrendData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={newUsersTrendData}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip />
+                              <Legend />
+                              <Line type="monotone" dataKey="newUsers" stroke="#3B82F6" strokeWidth={2} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                            No GA4 new-user data for this date range.
+                          </div>
+                        )
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                          Connect GA4 to view this chart.
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   <div className="bg-white p-6 rounded-xl border border-gray-200">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Total User Visitors Trending</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Total Users Trending</h3>
                     <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={sampleReports}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          <Line type="monotone" dataKey="totalUsers" stroke="#10B981" strokeWidth={2} />
-                        </LineChart>
-                      </ResponsiveContainer>
+                      {ga4Connected ? (
+                        totalUsersTrendData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={totalUsersTrendData}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip />
+                              <Legend />
+                              <Line type="monotone" dataKey="totalUsers" stroke="#10B981" strokeWidth={2} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                            No GA4 total-user data for this date range.
+                          </div>
+                        )
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                          Connect GA4 to view this chart.
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2000,6 +2367,70 @@ const ClientDashboardPage: React.FC = () => {
           </div>
         </div>
         , document.body
+      )}
+
+      {/* GA4 Property ID Modal */}
+      {showGA4Modal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Enter GA4 Property ID</h3>
+              <button
+                onClick={() => {
+                  setShowGA4Modal(false);
+                  setGa4PropertyId("");
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Please enter your Google Analytics 4 Property ID. You can find this in your GA4 property settings.
+              <br />
+              <span className="text-xs text-gray-500 mt-2 block">
+                Format: Just the numeric ID (e.g., "123456789") or "properties/123456789"
+              </span>
+            </p>
+            <input
+              type="text"
+              value={ga4PropertyId}
+              onChange={(e) => setGa4PropertyId(e.target.value)}
+              placeholder="123456789"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent mb-4"
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleSubmitPropertyId();
+                }
+              }}
+            />
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={handleSubmitPropertyId}
+                disabled={ga4Connecting || !ga4PropertyId.trim()}
+                className="flex-1 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              >
+                {ga4Connecting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Connecting...</span>
+                  </>
+                ) : (
+                  <span>Connect</span>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setShowGA4Modal(false);
+                  setGa4PropertyId("");
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

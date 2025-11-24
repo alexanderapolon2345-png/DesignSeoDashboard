@@ -297,6 +297,495 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// GA4 Connection Routes
+import { getGA4AuthUrl, exchangeCodeForTokens, isGA4Connected } from '../lib/ga4.js';
 
+// GA4 OAuth callback (no auth required - handled via state parameter)
+router.get('/ga4/callback', async (req, res) => {
+    try {
+        const { code, state, error } = req.query;
+
+        // Parse state: can be "clientId" or "clientId|popup"
+        let clientId = '';
+        let isPopup = false;
+        if (state) {
+            const stateParts = (state as string).split('|');
+            clientId = stateParts[0];
+            isPopup = stateParts[1] === 'popup';
+        }
+        // Fallback checks for popup detection
+        if (!isPopup) {
+            isPopup = req.query.popup === 'true' || req.headers.referer?.includes('popup=true');
+        }
+
+        if (error) {
+            if (isPopup) {
+                // Return HTML page that closes popup and sends error message to parent
+                return res.send(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>GA4 Connection</title>
+                        <style>
+                            body {
+                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                                height: 100vh;
+                                margin: 0;
+                                background: #f5f5f5;
+                            }
+                            .container {
+                                text-align: center;
+                                padding: 2rem;
+                            }
+                            .error {
+                                color: #ef4444;
+                                font-size: 1.1rem;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <div class="error">Connection failed: ${error}</div>
+                        </div>
+                        <script>
+                            if (window.opener) {
+                                window.opener.postMessage({
+                                    type: 'GA4_OAUTH_ERROR',
+                                    error: '${error}'
+                                }, '*');
+                                setTimeout(() => window.close(), 2000);
+                            } else {
+                                window.location.href = '${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/clients?ga4_error=${encodeURIComponent(error as string)}';
+                            }
+                        </script>
+                    </body>
+                    </html>
+                `);
+            }
+            return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/clients?ga4_error=${encodeURIComponent(error as string)}`);
+        }
+
+        if (!code || !state) {
+            if (isPopup) {
+                return res.send(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>GA4 Connection</title>
+                        <style>
+                            body {
+                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                                height: 100vh;
+                                margin: 0;
+                                background: #f5f5f5;
+                            }
+                            .container {
+                                text-align: center;
+                                padding: 2rem;
+                            }
+                            .error {
+                                color: #ef4444;
+                                font-size: 1.1rem;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <div class="error">Missing authorization parameters</div>
+                        </div>
+                        <script>
+                            if (window.opener) {
+                                window.opener.postMessage({
+                                    type: 'GA4_OAUTH_ERROR',
+                                    error: 'missing_params'
+                                }, '*');
+                                setTimeout(() => window.close(), 2000);
+                            } else {
+                                window.location.href = '${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/clients?ga4_error=missing_params';
+                            }
+                        </script>
+                    </body>
+                    </html>
+                `);
+            }
+            return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/clients?ga4_error=missing_params`);
+        }
+
+        // Exchange code for tokens (clientId already parsed above)
+        const { accessToken, refreshToken, email } = await exchangeCodeForTokens(code as string);
+
+        // Store tokens (property ID will be set separately via the connect endpoint)
+        await prisma.client.update({
+            where: { id: clientId },
+            data: {
+                ga4AccessToken: accessToken,
+                ga4RefreshToken: refreshToken,
+                ga4AccountEmail: email,
+                // Don't set propertyId or connectedAt yet - user needs to select property
+            },
+        });
+
+        // If popup, return HTML that closes popup and sends success message to parent
+        if (isPopup) {
+            return res.send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>GA4 Connection</title>
+                    <style>
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100vh;
+                            margin: 0;
+                            background: #f5f5f5;
+                        }
+                        .container {
+                            text-align: center;
+                            padding: 2rem;
+                        }
+                        .success {
+                            color: #10b981;
+                            font-size: 1.1rem;
+                            margin-bottom: 1rem;
+                        }
+                        .spinner {
+                            border: 3px solid #f3f4f6;
+                            border-top: 3px solid #10b981;
+                            border-radius: 50%;
+                            width: 30px;
+                            height: 30px;
+                            animation: spin 1s linear infinite;
+                            margin: 1rem auto;
+                        }
+                        @keyframes spin {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="success">✓ Successfully connected!</div>
+                        <div class="spinner"></div>
+                        <div>Closing window...</div>
+                    </div>
+                    <script>
+                        if (window.opener) {
+                            window.opener.postMessage({
+                                type: 'GA4_OAUTH_SUCCESS',
+                                clientId: '${clientId}'
+                            }, '*');
+                            setTimeout(() => window.close(), 1000);
+                        } else {
+                            window.location.href = '${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/clients/${clientId}?ga4_tokens_received=true';
+                        }
+                    </script>
+                </body>
+                </html>
+            `);
+        }
+
+        // Redirect to client page with token stored, user can now select property
+        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/clients/${clientId}?ga4_tokens_received=true`);
+    } catch (error: any) {
+        console.error('GA4 callback error:', error);
+        const isPopup = req.query.popup === 'true' || req.headers.referer?.includes('popup=true');
+        
+        if (isPopup) {
+            return res.send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>GA4 Connection</title>
+                    <style>
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100vh;
+                            margin: 0;
+                            background: #f5f5f5;
+                        }
+                        .container {
+                            text-align: center;
+                            padding: 2rem;
+                        }
+                        .error {
+                            color: #ef4444;
+                            font-size: 1.1rem;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="error">Connection failed: ${error.message || 'Unknown error'}</div>
+                    </div>
+                    <script>
+                        if (window.opener) {
+                            window.opener.postMessage({
+                                type: 'GA4_OAUTH_ERROR',
+                                error: '${error.message || 'connection_failed'}'
+                            }, '*');
+                            setTimeout(() => window.close(), 2000);
+                        } else {
+                            window.location.href = '${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/clients?ga4_error=${encodeURIComponent(error.message || 'connection_failed')}';
+                        }
+                    </script>
+                </body>
+                </html>
+            `);
+        }
+        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/clients?ga4_error=${encodeURIComponent(error.message || 'connection_failed')}`);
+    }
+});
+
+// Get GA4 connection status
+router.get('/:id/ga4/status', authenticateToken, async (req, res) => {
+    try {
+        const clientId = req.params.id;
+
+        // Check access
+        const client = await prisma.client.findUnique({
+            where: { id: clientId },
+            include: {
+                user: {
+                    include: {
+                        memberships: {
+                            select: { agencyId: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!client) {
+            return res.status(404).json({ message: 'Client not found' });
+        }
+
+        const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+        const isOwner = client.userId === req.user.userId;
+        const userMemberships = await prisma.userAgency.findMany({
+            where: { userId: req.user.userId },
+            select: { agencyId: true },
+        });
+        const userAgencyIds = userMemberships.map(m => m.agencyId);
+        const clientAgencyIds = client.user.memberships.map(m => m.agencyId);
+        const hasAccess = isAdmin || isOwner || clientAgencyIds.some(id => userAgencyIds.includes(id));
+
+        if (!hasAccess) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        const connected = await isGA4Connected(clientId);
+        const clientData = await prisma.client.findUnique({
+            where: { id: clientId },
+            select: {
+                ga4PropertyId: true,
+                ga4AccountEmail: true,
+                ga4ConnectedAt: true,
+            },
+        });
+
+        res.json({
+            connected,
+            propertyId: clientData?.ga4PropertyId || null,
+            accountEmail: clientData?.ga4AccountEmail || null,
+            connectedAt: clientData?.ga4ConnectedAt || null,
+        });
+    } catch (error) {
+        console.error('GA4 status error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+// Get GA4 authorization URL
+router.get('/:id/ga4/auth-url', authenticateToken, async (req, res) => {
+    try {
+        const clientId = req.params.id;
+        const isPopup = req.query.popup === 'true';
+
+        // Check access
+        const client = await prisma.client.findUnique({
+            where: { id: clientId },
+            include: {
+                user: {
+                    include: {
+                        memberships: {
+                            select: { agencyId: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!client) {
+            return res.status(404).json({ message: 'Client not found' });
+        }
+
+        const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+        const isOwner = client.userId === req.user.userId;
+        const userMemberships = await prisma.userAgency.findMany({
+            where: { userId: req.user.userId },
+            select: { agencyId: true },
+        });
+        const userAgencyIds = userMemberships.map(m => m.agencyId);
+        const clientAgencyIds = client.user.memberships.map(m => m.agencyId);
+        const hasAccess = isAdmin || isOwner || clientAgencyIds.some(id => userAgencyIds.includes(id));
+
+        if (!hasAccess) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        // Encode popup flag in state parameter: "clientId|popup" or just "clientId"
+        const state = isPopup ? `${clientId}|popup` : clientId;
+        const authUrl = getGA4AuthUrl(state);
+        res.json({ authUrl });
+    } catch (error: any) {
+        console.error('GA4 auth URL error:', error);
+        // Provide helpful error message for common issues
+        let errorMessage = error.message || 'Internal server error';
+        if (error.message?.includes('not configured')) {
+            errorMessage = 'GA4 OAuth credentials not configured. Please set GA4_CLIENT_ID and GA4_CLIENT_SECRET in server/.env file. See FIX_OAUTH_ERROR.md for instructions.';
+        }
+        res.status(500).json({ message: errorMessage });
+    }
+});
+
+// Connect GA4 with property ID (after OAuth callback)
+router.post('/:id/ga4/connect', authenticateToken, async (req, res) => {
+    try {
+        const clientId = req.params.id;
+        const { propertyId } = req.body;
+
+        if (!propertyId) {
+            return res.status(400).json({ message: 'Property ID is required. Format: properties/123456789' });
+        }
+
+        // Check access
+        const client = await prisma.client.findUnique({
+            where: { id: clientId },
+            include: {
+                user: {
+                    include: {
+                        memberships: {
+                            select: { agencyId: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!client) {
+            return res.status(404).json({ message: 'Client not found' });
+        }
+
+        const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+        const isOwner = client.userId === req.user.userId;
+        const userMemberships = await prisma.userAgency.findMany({
+            where: { userId: req.user.userId },
+            select: { agencyId: true },
+        });
+        const userAgencyIds = userMemberships.map(m => m.agencyId);
+        const clientAgencyIds = client.user.memberships.map(m => m.agencyId);
+        const hasAccess = isAdmin || isOwner || clientAgencyIds.some(id => userAgencyIds.includes(id));
+
+        if (!hasAccess) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        // Check if tokens exist (from OAuth callback)
+        const existingClient = await prisma.client.findUnique({
+            where: { id: clientId },
+            select: { ga4AccessToken: true, ga4RefreshToken: true },
+        });
+
+        if (!existingClient?.ga4AccessToken || !existingClient?.ga4RefreshToken) {
+            return res.status(400).json({ message: 'Please complete OAuth flow first by clicking "Connect GA4"' });
+        }
+
+        // Normalize property ID (remove 'properties/' prefix if present, we'll add it in the API call)
+        const normalizedPropertyId = propertyId.replace(/^properties\//, '');
+
+        // Update client with property ID
+        await prisma.client.update({
+            where: { id: clientId },
+            data: {
+                ga4PropertyId: normalizedPropertyId,
+                ga4ConnectedAt: new Date(),
+            },
+        });
+
+        res.json({ message: 'GA4 connected successfully' });
+    } catch (error: any) {
+        console.error('GA4 connect error:', error);
+        res.status(500).json({ message: error.message || 'Internal server error' });
+    }
+});
+
+// Disconnect GA4
+router.post('/:id/ga4/disconnect', authenticateToken, async (req, res) => {
+    try {
+        const clientId = req.params.id;
+
+        // Check access
+        const client = await prisma.client.findUnique({
+            where: { id: clientId },
+            include: {
+                user: {
+                    include: {
+                        memberships: {
+                            select: { agencyId: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!client) {
+            return res.status(404).json({ message: 'Client not found' });
+        }
+
+        const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+        const isOwner = client.userId === req.user.userId;
+        const userMemberships = await prisma.userAgency.findMany({
+            where: { userId: req.user.userId },
+            select: { agencyId: true },
+        });
+        const userAgencyIds = userMemberships.map(m => m.agencyId);
+        const clientAgencyIds = client.user.memberships.map(m => m.agencyId);
+        const hasAccess = isAdmin || isOwner || clientAgencyIds.some(id => userAgencyIds.includes(id));
+
+        if (!hasAccess) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        // Remove GA4 connection
+        await prisma.client.update({
+            where: { id: clientId },
+            data: {
+                ga4AccessToken: null,
+                ga4RefreshToken: null,
+                ga4PropertyId: null,
+                ga4AccountEmail: null,
+                ga4ConnectedAt: null,
+            },
+        });
+
+        res.json({ message: 'GA4 disconnected successfully' });
+    } catch (error) {
+        console.error('GA4 disconnect error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
 
 export default router;
