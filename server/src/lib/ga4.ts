@@ -216,19 +216,9 @@ async function getAnalyticsClient(clientId: string) {
     
     console.log(`[GA4] Verified access token (length: ${tokenInfo.length})`);
     
-    // Verify we can get request metadata (required for gRPC)
-    // Note: getRequestMetadata might not exist on GoogleAuth, so we'll use getAccessToken directly
-    const requestMetadata = await (auth as any).getRequestMetadata?.() || { headers: {} };
-    const authHeader = requestMetadata?.headers?.Authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('[GA4] Invalid auth header:', { 
-        hasMetadata: !!requestMetadata, 
-        headers: requestMetadata?.headers,
-        authHeader: authHeader ? authHeader.substring(0, 20) : 'missing'
-      });
-      throw new Error('Failed to get valid authorization header for gRPC');
-    }
-    console.log(`[GA4] Verified authorization metadata for gRPC: ${authHeader.substring(0, 25)}...`);
+    // Note: BetaAnalyticsDataClient will handle getting request metadata internally
+    // We don't need to manually verify getRequestMetadata - the client library does this
+    // The auth object is properly configured and will work with gRPC
   } catch (tokenError: any) {
     console.error('[GA4] Authentication verification failed:', {
       error: tokenError.message,
@@ -303,13 +293,30 @@ export async function fetchGA4TrafficData(
   console.log(`[GA4] Fetching data for property ${propertyId} from ${startDateStr} to ${endDateStr}`);
   console.log(`[GA4] Stored property ID: ${client.ga4PropertyId}, Formatted: ${propertyId}`);
 
-  // Run multiple requests in parallel for better performance
+  // Run requests with individual error handling to avoid one failure breaking all requests
   let sessionsResponse, usersResponse, engagementResponse, conversionsResponse, trendResponse;
   
+  // Helper to safely run a report request
+  const safeRunReport = async (requestConfig: any, requestName: string) => {
+    try {
+      const [response] = await analytics.runReport(requestConfig);
+      return response;
+    } catch (error: any) {
+      console.warn(`[GA4] ${requestName} request failed:`, {
+        error: error.message,
+        code: error.code,
+        propertyId,
+      });
+      // Return null so other requests can still succeed
+      return null;
+    }
+  };
+
   try {
-    const responses = await Promise.all([
+    // Run core requests in parallel (these are most important)
+    const [sessionsResult, usersResult, engagementResult, trendResult] = await Promise.all([
       // Sessions by channel
-      analytics.runReport({
+      safeRunReport({
         property: propertyId,
         dateRanges: [
           {
@@ -319,41 +326,70 @@ export async function fetchGA4TrafficData(
         ],
         dimensions: [{ name: 'sessionDefaultChannelGroup' }],
         metrics: [{ name: 'sessions' }],
-      }),
-    // Active Users, New Users, Event Count, and Key Events (conversions)
-    analytics.runReport({
-      property: propertyId,
-      dateRanges: [
-        {
-          startDate: startDateStr,
-          endDate: endDateStr,
-        },
-      ],
-      metrics: [
-        { name: 'activeUsers' }, // Active Users
-        { name: 'newUsers' }, // New Users
-        { name: 'eventCount' }, // Event Count
-        { name: 'conversions' }, // Key Events (conversions)
-      ],
-    }),
-    // Engagement metrics
-    analytics.runReport({
-      property: propertyId,
-      dateRanges: [
-        {
-          startDate: startDateStr,
-          endDate: endDateStr,
-        },
-      ],
-      metrics: [
-        { name: 'bounceRate' },
-        { name: 'averageSessionDuration' },
-        { name: 'screenPageViewsPerSession' },
-        { name: 'engagedSessions' },
-      ],
-    }),
-    // Conversions
-    analytics.runReport({
+      }, 'Sessions by channel'),
+      
+      // Active Users, New Users, Event Count (removed conversions from here)
+      safeRunReport({
+        property: propertyId,
+        dateRanges: [
+          {
+            startDate: startDateStr,
+            endDate: endDateStr,
+          },
+        ],
+        metrics: [
+          { name: 'activeUsers' },
+          { name: 'newUsers' },
+          { name: 'eventCount' },
+        ],
+      }, 'Users and Events'),
+      
+      // Engagement metrics
+      safeRunReport({
+        property: propertyId,
+        dateRanges: [
+          {
+            startDate: startDateStr,
+            endDate: endDateStr,
+          },
+        ],
+        metrics: [
+          { name: 'bounceRate' },
+          { name: 'averageSessionDuration' },
+          { name: 'screenPageViewsPerSession' },
+          { name: 'engagedSessions' },
+        ],
+      }, 'Engagement'),
+      
+      // Trend data (daily new users + active users)
+      safeRunReport({
+        property: propertyId,
+        dateRanges: [
+          {
+            startDate: startDateStr,
+            endDate: endDateStr,
+          },
+        ],
+        dimensions: [{ name: 'date' }],
+        metrics: [
+          { name: 'newUsers' },
+          { name: 'activeUsers' },
+        ],
+        orderBys: [
+          {
+            dimension: { dimensionName: 'date' },
+          },
+        ],
+      }, 'Trend data'),
+    ]);
+
+    sessionsResponse = sessionsResult;
+    usersResponse = usersResult;
+    engagementResponse = engagementResult;
+    trendResponse = trendResult;
+
+    // Try conversions separately (this often fails if conversion events aren't configured)
+    conversionsResponse = await safeRunReport({
       property: propertyId,
       dateRanges: [
         {
@@ -365,49 +401,25 @@ export async function fetchGA4TrafficData(
         { name: 'conversions' },
         { name: 'conversionRate' },
       ],
-    }),
-    // Trend data (daily new users + active users)
-    analytics.runReport({
-      property: propertyId,
-      dateRanges: [
-        {
-          startDate: startDateStr,
-          endDate: endDateStr,
-        },
-      ],
-      dimensions: [{ name: 'date' }],
-      metrics: [
-        { name: 'newUsers' },
-        { name: 'activeUsers' }, // Changed from totalUsers to activeUsers
-      ],
-      orderBys: [
-        {
-          dimension: { dimensionName: 'date' },
-        },
-      ],
-    }),
-    ]);
+    }, 'Conversions');
 
-    // Extract the response data from each promise result
-    // runReport returns [response, request, metadata] - we need the first element
-    sessionsResponse = responses[0][0];
-    usersResponse = responses[1][0];
-    engagementResponse = responses[2][0];
-    conversionsResponse = responses[3][0];
-    trendResponse = responses[4][0];
+    // Check if we got at least some data
+    if (!sessionsResponse && !usersResponse && !engagementResponse && !trendResponse) {
+      throw new Error('All GA4 API requests failed. Please check property ID and permissions.');
+    }
+
   } catch (apiError: any) {
-    console.error('[GA4] API call failed:', {
+    console.error('[GA4] Critical API error:', {
       error: apiError.message,
       code: apiError.code,
-      status: apiError.status || apiError.statusCode,
-      statusText: apiError.statusText,
       propertyId,
-      stack: apiError.stack,
     });
     
     // More detailed error message
     let errorMessage = `Failed to fetch GA4 data: ${apiError.message || 'Unknown error'}`;
-    if (apiError.code === 403 || apiError.statusCode === 403) {
+    if (apiError.code === 3 || apiError.message?.includes('INVALID_ARGUMENT')) {
+      errorMessage = `GA4 API invalid argument. This usually means: 1) Property ID is incorrect, 2) Date range is invalid, or 3) Metric/dimension combination is not allowed. Property: ${propertyId}, Date range: ${startDateStr} to ${endDateStr}`;
+    } else if (apiError.code === 403 || apiError.statusCode === 403) {
       errorMessage = 'GA4 API access denied. Please check that the property ID is correct and the account has access.';
     } else if (apiError.code === 404 || apiError.statusCode === 404) {
       errorMessage = `GA4 property not found: ${propertyId}. Please verify the property ID is correct.`;
@@ -423,7 +435,7 @@ export async function fetchGA4TrafficData(
   const conversionsRows = conversionsResponse?.rows?.length || 0;
   const trendRows = trendResponse?.rows?.length || 0;
 
-  console.log('GA4 API responses:', {
+  console.log('[GA4] API responses received:', {
     propertyId,
     dateRange: { start: startDateStr, end: endDateStr },
     sessionsRows,
@@ -433,11 +445,33 @@ export async function fetchGA4TrafficData(
     trendRows,
   });
 
+  // Log raw response data for debugging
+  if (usersResponse?.rows?.[0]) {
+    console.log('[GA4] Users response sample:', {
+      rowCount: usersResponse.rows.length,
+      metricValues: usersResponse.rows[0].metricValues?.map((mv: any, idx: number) => ({
+        index: idx,
+        value: mv.value,
+        valueType: mv.valueType,
+      })),
+    });
+  }
+
   // Helpful debug when GA4 returns no rows at all
   if (!sessionsRows && !usersRows && !engagementRows && !conversionsRows && !trendRows) {
     console.warn(
-      'GA4 returned no rows for this request. Possible reasons: no data for date range, wrong property, or filters.',
-      { propertyId, startDate: startDateStr, endDate: endDateStr }
+      '[GA4] ⚠️ No data returned from GA4 API. Possible reasons:',
+      {
+        propertyId,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        possibleCauses: [
+          'No data exists for this date range in GA4',
+          'Property ID is incorrect',
+          'Account does not have access to this property',
+          'Date range is too recent (GA4 data can take 24-48 hours to appear)',
+        ],
+      }
     );
   }
 
@@ -467,7 +501,8 @@ export async function fetchGA4TrafficData(
     }
   }
 
-  // Parse new metrics: Active Users, New Users, Event Count, Key Events
+  // Parse new metrics: Active Users, New Users, Event Count
+  // Note: conversions/keyEvents are parsed separately from conversionsResponse
   const activeUsers = parseInt(
     usersResponse?.rows?.[0]?.metricValues?.[0]?.value || '0',
     10
@@ -480,10 +515,22 @@ export async function fetchGA4TrafficData(
     usersResponse?.rows?.[0]?.metricValues?.[2]?.value || '0',
     10
   );
+  
+  // Key Events (conversions) - get from conversions response if available
   const keyEvents = parseInt(
-    usersResponse?.rows?.[0]?.metricValues?.[3]?.value || '0',
+    conversionsResponse?.rows?.[0]?.metricValues?.[0]?.value || '0',
     10
   );
+
+  // Log parsed values for debugging
+  console.log('[GA4] Parsed metrics:', {
+    activeUsers,
+    newUsers,
+    eventCount,
+    keyEvents,
+    totalSessions,
+    organicSessions,
+  });
 
   // Parse engagement metrics
   const bounceRate = parseFloat(

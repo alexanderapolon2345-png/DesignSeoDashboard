@@ -896,7 +896,7 @@ router.post('/:id/ga4/connect', authenticateToken, async (req, res) => {
     }
 });
 
-// Test GA4 connection and data fetch
+// Test GA4 connection and data fetch with detailed diagnostics
 router.get('/:id/ga4/test', authenticateToken, async (req, res) => {
     try {
         const clientId = req.params.id;
@@ -965,13 +965,42 @@ router.get('/:id/ga4/test', authenticateToken, async (req, res) => {
                 connected: true,
                 message: 'GA4 connection is working',
                 propertyId: client.ga4PropertyId,
+                dateRange: {
+                    start: startDate.toISOString().split('T')[0],
+                    end: endDate.toISOString().split('T')[0],
+                },
                 data: {
-                    totalUsers: data.totalUsers,
+                    activeUsers: data.activeUsers,
+                    newUsers: data.newUsers,
+                    eventCount: data.eventCount,
+                    keyEvents: data.keyEvents,
                     totalSessions: data.totalSessions,
                     organicSessions: data.organicSessions,
-                    firstTimeVisitors: data.firstTimeVisitors,
-                    engagedVisitors: data.engagedVisitors,
-                    hasTrendData: data.newUsersTrend.length > 0,
+                    hasTrendData: data.newUsersTrend.length > 0 || data.activeUsersTrend.length > 0,
+                    trendDataPoints: {
+                        newUsers: data.newUsersTrend.length,
+                        activeUsers: data.activeUsersTrend.length,
+                    },
+                },
+                diagnostics: {
+                    hasData: !!(data.activeUsers || data.newUsers || data.eventCount || data.totalSessions),
+                    allMetricsZero: (
+                        data.activeUsers === 0 &&
+                        data.newUsers === 0 &&
+                        data.eventCount === 0 &&
+                        data.totalSessions === 0
+                    ),
+                    possibleIssues: (
+                        data.activeUsers === 0 &&
+                        data.newUsers === 0 &&
+                        data.eventCount === 0 &&
+                        data.totalSessions === 0
+                    ) ? [
+                        'No data exists for this date range in GA4',
+                        'Property may not have received any traffic',
+                        'Date range might be too recent (GA4 data can take 24-48 hours)',
+                        'Check if GA4 property is receiving data in Google Analytics dashboard',
+                    ] : [],
                 },
             });
         } catch (error: any) {

@@ -1777,31 +1777,52 @@ router.get("/dashboard/:clientId", authenticateToken, async (req, res) => {
     // Try to fetch from GA4 if connected
     if (isGA4Connected) {
       try {
+        console.log(`[Dashboard] Attempting to fetch GA4 data for client ${clientId}`, {
+          propertyId: client.ga4PropertyId,
+          dateRange: { start: startDate.toISOString(), end: endDate.toISOString() },
+          hasAccessToken: !!client.ga4AccessToken,
+          hasRefreshToken: !!client.ga4RefreshToken,
+        });
+        
         const { fetchGA4TrafficData } = await import("../lib/ga4.js");
         ga4Data = await fetchGA4TrafficData(clientId, startDate, endDate);
         trafficDataSource = "ga4";
-        console.log(`Successfully fetched GA4 data for client ${clientId}:`, {
+        
+        console.log(`[Dashboard] ✅ Successfully fetched GA4 data for client ${clientId}:`, {
           activeUsers: ga4Data?.activeUsers,
           eventCount: ga4Data?.eventCount,
           newUsers: ga4Data?.newUsers,
           keyEvents: ga4Data?.keyEvents,
+          totalSessions: ga4Data?.totalSessions,
+          organicSessions: ga4Data?.organicSessions,
+          hasTrendData: !!(ga4Data?.activeUsersTrend?.length || ga4Data?.newUsersTrend?.length),
         });
       } catch (ga4Error: any) {
-        console.error("[Dashboard] Failed to fetch GA4 data:", {
+        console.error("[Dashboard] ❌ Failed to fetch GA4 data:", {
           clientId,
           error: ga4Error.message,
-          stack: ga4Error.stack,
+          errorName: ga4Error.name,
+          errorCode: ga4Error.code,
+          stack: ga4Error.stack?.substring(0, 500),
           propertyId: client.ga4PropertyId,
           hasAccessToken: !!client.ga4AccessToken,
           hasRefreshToken: !!client.ga4RefreshToken,
           hasPropertyId: !!client.ga4PropertyId,
+          dateRange: { start: startDate.toISOString(), end: endDate.toISOString() },
         });
+        
         // Continue with fallback data sources
         // Return error info to frontend for debugging
         if (ga4Error.message) {
-          console.error("GA4 Error details:", ga4Error.message);
+          console.error("[Dashboard] GA4 Error details:", ga4Error.message);
         }
       }
+    } else {
+      console.log(`[Dashboard] GA4 not connected for client ${clientId}`, {
+        hasRefreshToken: !!client.ga4RefreshToken,
+        hasPropertyId: !!client.ga4PropertyId,
+        hasConnectedAt: !!client.ga4ConnectedAt,
+      });
     }
 
     // Get latest report (fallback if GA4 not available)
