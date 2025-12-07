@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { Download, TrendingUp, TrendingDown, Search, MousePointer, Users, Loader2, RefreshCw } from "lucide-react";
+import { Download, TrendingUp, TrendingDown, Search, MousePointer, Users, Loader2, RefreshCw, UserPlus, Activity } from "lucide-react";
+import RankedKeywordsOverview from "@/components/RankedKeywordsOverview";
 import api from "@/lib/api";
 import { format } from "date-fns";
 import html2canvas from "html2canvas";
@@ -44,11 +45,24 @@ interface TopPageItem {
   paidTraffic: number;
 }
 
+interface TrendPoint {
+  date: string;
+  value: number;
+}
+
 interface DashboardSummary {
   totalSessions: number | null;
   organicSessions: number | null;
   averagePosition: number | null;
   conversions: number | null;
+  // GA4 metrics
+  activeUsers: number | null;
+  eventCount: number | null;
+  newUsers: number | null;
+  keyEvents: number | null;
+  newUsersTrend?: TrendPoint[] | null;
+  activeUsersTrend?: TrendPoint[] | null;
+  isGA4Connected?: boolean;
   client?: {
     id: string;
     name: string;
@@ -161,6 +175,16 @@ const ShareDashboardPage: React.FC = () => {
         setFetchingSummary(true);
         const res = await api.get(`/seo/share/${encodeURIComponent(token)}/dashboard?period=${dateRange}`);
         const payload = res.data || {};
+        const normalizeTrendPoints = (trend: any): TrendPoint[] => {
+          if (!Array.isArray(trend)) return [];
+          return trend
+            .map((point) => ({
+              date: typeof point?.date === "string" ? point.date : "",
+              value: Number(point?.value ?? 0) || 0,
+            }))
+            .filter((point) => Boolean(point.date));
+        };
+
         setDashboardSummary({
           ...payload,
           totalSessions:
@@ -179,6 +203,14 @@ const ShareDashboardPage: React.FC = () => {
             payload?.conversions !== undefined && payload?.conversions !== null
               ? Number(payload.conversions)
               : null,
+          // GA4 metrics
+          activeUsers: payload?.activeUsers !== undefined && payload?.activeUsers !== null ? Number(payload.activeUsers) : null,
+          eventCount: payload?.eventCount !== undefined && payload?.eventCount !== null ? Number(payload.eventCount) : null,
+          newUsers: payload?.newUsers !== undefined && payload?.newUsers !== null ? Number(payload.newUsers) : null,
+          keyEvents: payload?.keyEvents !== undefined && payload?.keyEvents !== null ? Number(payload.keyEvents) : null,
+          newUsersTrend: normalizeTrendPoints(payload?.newUsersTrend),
+          activeUsersTrend: normalizeTrendPoints(payload?.activeUsersTrend),
+          isGA4Connected: payload?.isGA4Connected || false,
         });
         setLoading(false);
       } catch (error: any) {
@@ -393,6 +425,83 @@ const ShareDashboardPage: React.FC = () => {
     return "72";
   }, [dashboardSummary?.conversions, fetchingSummary]);
 
+  // GA4 metric displays
+  const activeUsersDisplay = useMemo(() => {
+    if (fetchingSummary) return "...";
+    if (dashboardSummary?.isGA4Connected !== true) return "—";
+    if (dashboardSummary?.activeUsers !== null && dashboardSummary?.activeUsers !== undefined) {
+      const numeric = Number(dashboardSummary.activeUsers);
+      if (Number.isFinite(numeric)) {
+        return Math.round(numeric).toLocaleString();
+      }
+    }
+    return "—";
+  }, [dashboardSummary?.activeUsers, fetchingSummary, dashboardSummary?.isGA4Connected]);
+
+  const eventCountDisplay = useMemo(() => {
+    if (fetchingSummary) return "...";
+    if (dashboardSummary?.isGA4Connected !== true) return "—";
+    if (dashboardSummary?.eventCount !== null && dashboardSummary?.eventCount !== undefined) {
+      const numeric = Number(dashboardSummary.eventCount);
+      if (Number.isFinite(numeric)) {
+        return Math.round(numeric).toLocaleString();
+      }
+    }
+    return "—";
+  }, [dashboardSummary?.eventCount, fetchingSummary, dashboardSummary?.isGA4Connected]);
+
+  const newUsersDisplay = useMemo(() => {
+    if (fetchingSummary) return "...";
+    if (dashboardSummary?.isGA4Connected !== true) return "—";
+    if (dashboardSummary?.newUsers !== null && dashboardSummary?.newUsers !== undefined) {
+      const numeric = Number(dashboardSummary.newUsers);
+      if (Number.isFinite(numeric)) {
+        return Math.round(numeric).toLocaleString();
+      }
+    }
+    return "—";
+  }, [dashboardSummary?.newUsers, fetchingSummary, dashboardSummary?.isGA4Connected]);
+
+  const keyEventsDisplay = useMemo(() => {
+    if (fetchingSummary) return "...";
+    if (dashboardSummary?.isGA4Connected !== true) return "—";
+    if (dashboardSummary?.keyEvents !== null && dashboardSummary?.keyEvents !== undefined) {
+      const numeric = Number(dashboardSummary.keyEvents);
+      if (Number.isFinite(numeric)) {
+        return Math.round(numeric).toLocaleString();
+      }
+    }
+    return "—";
+  }, [dashboardSummary?.keyEvents, fetchingSummary, dashboardSummary?.isGA4Connected]);
+
+  // Trend data processing
+  const newUsersTrendData = useMemo(() => {
+    if (!dashboardSummary?.newUsersTrend?.length) return [];
+    return dashboardSummary.newUsersTrend.map((point) => {
+      const dateObj = new Date(point.date);
+      const label = Number.isNaN(dateObj.getTime()) ? point.date : format(dateObj, "MMM d");
+      const value = Number(point.value ?? 0);
+      return {
+        name: label,
+        newUsers: Number.isFinite(value) ? value : 0,
+      };
+    });
+  }, [dashboardSummary?.newUsersTrend]);
+
+  const activeUsersTrendData = useMemo(() => {
+    const trend = dashboardSummary?.activeUsersTrend;
+    if (!trend?.length) return [];
+    return trend.map((point) => {
+      const dateObj = new Date(point.date);
+      const label = Number.isNaN(dateObj.getTime()) ? point.date : format(dateObj, "MMM d");
+      const value = Number(point.value ?? 0);
+      return {
+        name: label,
+        activeUsers: Number.isFinite(value) ? value : 0,
+      };
+    });
+  }, [dashboardSummary?.activeUsersTrend]);
+
   if (!token) {
     return (
       <div className="p-8">
@@ -468,100 +577,160 @@ const ShareDashboardPage: React.FC = () => {
           </div>
         ) : (
           <div ref={dashboardContentRef} className="space-y-8">
+            {/* Report View - GA4 Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white p-6 rounded-xl border border-gray-200">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Total Web Visitors</p>
-                    <p className="text-2xl font-bold text-gray-900">{totalVisitorsDisplay}</p>
+                    <p className="text-sm font-medium text-gray-600">Active Users</p>
+                    <p className="text-2xl font-bold text-gray-900">{activeUsersDisplay}</p>
                   </div>
                   <Users className="h-8 w-8 text-blue-500" />
                 </div>
-                <div className="mt-4 flex items-center space-x-2">
-                  <TrendingUp className="h-4 w-4 text-green-500" />
-                  <span className="text-sm text-green-600">+15.3% from last month</span>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Organic Traffic</p>
-                    <p className="text-2xl font-bold text-gray-900">{organicTrafficDisplay}</p>
+                {dashboardSummary?.isGA4Connected ? (
+                  <div className="mt-4 flex items-center space-x-2">
+                    <TrendingUp className="h-4 w-4 text-green-500" />
+                    <span className="text-sm text-green-600">Real-time data from GA4</span>
                   </div>
-                  <Search className="h-8 w-8 text-green-500" />
-                </div>
-                <div className="mt-4 flex items-center space-x-2">
-                  <TrendingUp className="h-4 w-4 text-green-500" />
-                  <span className="text-sm text-green-600">+8.3% from last month</span>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Average Position</p>
-                    <p className="text-2xl font-bold text-gray-900">{averagePositionDisplay}</p>
+                ) : (
+                  <div className="mt-4">
+                    <span className="text-xs text-gray-500">Connect GA4 to view data</span>
                   </div>
-                  <MousePointer className="h-8 w-8 text-purple-500" />
-                </div>
-                <div className="mt-4 flex items-center space-x-2">
-                  <TrendingDown className="h-4 w-4 text-red-500" />
-                  <span className="text-sm text-red-500">-0.4 vs last month</span>
-                </div>
+                )}
               </div>
 
               <div className="bg-white p-6 rounded-xl border border-gray-200">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Conversions</p>
-                    <p className="text-2xl font-bold text-gray-900">{conversionsDisplay}</p>
+                    <p className="text-sm font-medium text-gray-600">Event Count</p>
+                    <p className="text-2xl font-bold text-gray-900">{eventCountDisplay}</p>
+                  </div>
+                  <Activity className="h-8 w-8 text-green-500" />
+                </div>
+                {dashboardSummary?.isGA4Connected ? (
+                  <div className="mt-4 flex items-center space-x-2">
+                    <TrendingUp className="h-4 w-4 text-green-500" />
+                    <span className="text-sm text-green-600">Real-time data from GA4</span>
+                  </div>
+                ) : (
+                  <div className="mt-4">
+                    <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">New Users</p>
+                    <p className="text-2xl font-bold text-gray-900">{newUsersDisplay}</p>
+                  </div>
+                  <UserPlus className="h-8 w-8 text-purple-500" />
+                </div>
+                {dashboardSummary?.isGA4Connected ? (
+                  <div className="mt-4 flex items-center space-x-2">
+                    <TrendingUp className="h-4 w-4 text-green-500" />
+                    <span className="text-sm text-green-600">Real-time data from GA4</span>
+                  </div>
+                ) : (
+                  <div className="mt-4">
+                    <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Key Events (Conversions)</p>
+                    <p className="text-2xl font-bold text-gray-900">{keyEventsDisplay}</p>
                   </div>
                   <TrendingUp className="h-8 w-8 text-orange-500" />
                 </div>
-                <div className="mt-4 flex items-center space-x-2">
-                  <TrendingUp className="h-4 w-4 text-green-500" />
-                  <span className="text-sm text-green-600">+6.1% from last month</span>
-                </div>
+                {dashboardSummary?.isGA4Connected ? (
+                  <div className="mt-4 flex items-center space-x-2">
+                    <TrendingUp className="h-4 w-4 text-green-500" />
+                    <span className="text-sm text-green-600">Real-time data from GA4</span>
+                  </div>
+                ) : (
+                  <div className="mt-4">
+                    <span className="text-xs text-gray-500">Connect GA4 to view data</span>
+                  </div>
+                )}
               </div>
             </div>
 
+            {/* Trend Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-xl border border-gray-200">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">New User Visitors Trending</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">New Users Trending</h3>
                   {fetchingSummary && <span className="text-xs text-gray-400">Updating...</span>}
                 </div>
                 <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={sampleReports}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="newUsers" stroke="#3B82F6" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {dashboardSummary?.isGA4Connected ? (
+                    newUsersTrendData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={newUsersTrendData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Line type="monotone" dataKey="newUsers" stroke="#3B82F6" strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                        No GA4 new-user data for this date range.
+                      </div>
+                    )
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                      Connect GA4 to view this chart.
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="bg-white p-6 rounded-xl border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Total User Visitors Trending</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Active Users Trending</h3>
                 <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={sampleReports}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="totalUsers" stroke="#10B981" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {dashboardSummary?.isGA4Connected ? (
+                    activeUsersTrendData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={activeUsersTrendData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Line type="monotone" dataKey="activeUsers" stroke="#10B981" strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                        No GA4 total-user data for this date range.
+                      </div>
+                    )
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                      Connect GA4 to view this chart.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
+
+            {/* Ranked Keywords Overview */}
+            {dashboardSummary?.client?.id && (
+              <RankedKeywordsOverview
+                clientId={dashboardSummary.client.id}
+                clientName={dashboardSummary.client.name}
+                title="Total Keywords Ranked"
+                subtitle="Monitor how many organic keywords this client ranks for and how that total changes month-to-month."
+              />
+            )}
 
 
             <div className="bg-white p-6 rounded-xl border border-gray-200">

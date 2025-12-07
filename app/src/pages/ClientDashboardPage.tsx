@@ -177,8 +177,13 @@ const ClientDashboardPage: React.FC = () => {
   const { user } = useSelector((state: RootState) => state.auth);
   const [client, setClient] = useState<Client | null>((location.state as { client?: Client })?.client || null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "report" | "backlinks" | "worklog">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "report" | "backlinks" | "worklog">(
+    (location.state as { tab?: "dashboard" | "report" | "backlinks" | "worklog" })?.tab || "dashboard"
+  );
   const [dateRange, setDateRange] = useState("30");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [fetchingSummary, setFetchingSummary] = useState(false);
   const [backlinkTimeseries, setBacklinkTimeseries] = useState<BacklinkTimeseriesItem[]>([]);
@@ -256,6 +261,30 @@ const ClientDashboardPage: React.FC = () => {
     }
     return decoded;
   }, []);
+  // Helper function to build dashboard API URL with date range
+  const buildDashboardUrl = useCallback((clientId: string) => {
+    let url = `/seo/dashboard/${clientId}`;
+    if (dateRange === "custom") {
+      // Validate custom dates before building URL
+      if (!customStartDate || !customEndDate) {
+        // Fallback to last 30 days if custom dates are not set
+        url += `?period=30`;
+        return url;
+      }
+      const start = new Date(customStartDate);
+      const end = new Date(customEndDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+        // Fallback to last 30 days if dates are invalid
+        url += `?period=30`;
+        return url;
+      }
+      url += `?start=${customStartDate}&end=${customEndDate}`;
+    } else {
+      url += `?period=${dateRange}`;
+    }
+    return url;
+  }, [dateRange, customStartDate, customEndDate]);
+
   const handleExportPdf = useCallback(async () => {
     if (!dashboardContentRef.current) {
       toast.error("Switch to the Dashboard tab to export.");
@@ -330,7 +359,7 @@ const ClientDashboardPage: React.FC = () => {
       toast.success(successMessage);
       
       // Refetch dashboard data (this will get fresh DataForSEO and GA4 data)
-      const res = await api.get(`/seo/dashboard/${clientId}?period=${dateRange}`);
+      const res = await api.get(buildDashboardUrl(clientId));
       const payload = res.data || {};
       setDashboardSummary(formatDashboardSummary(payload));
       
@@ -347,7 +376,7 @@ const ClientDashboardPage: React.FC = () => {
     } finally {
       setRefreshingDashboard(false);
     }
-  }, [clientId, dateRange]);
+  }, [clientId, buildDashboardUrl]);
 
   const handleRefreshTopPages = useCallback(async () => {
     if (!clientId) return;
@@ -532,7 +561,7 @@ const ClientDashboardPage: React.FC = () => {
       // Refresh dashboard data
       const fetchSummary = async () => {
         try {
-          const res = await api.get(`/seo/dashboard/${clientId}?period=${dateRange}`);
+          const res = await api.get(buildDashboardUrl(clientId));
           const payload = res.data || {};
           setDashboardSummary(formatDashboardSummary(payload));
         } catch (error) {
@@ -574,12 +603,32 @@ const ClientDashboardPage: React.FC = () => {
     checkGA4Status();
   }, [clientId]); // Removed dateRange dependency - GA4 status doesn't change with date range
 
+  // Set active tab from location state when component mounts or location changes
+  useEffect(() => {
+    const state = location.state as { tab?: "dashboard" | "report" | "backlinks" | "worklog" };
+    if (state?.tab) {
+      setActiveTab(state.tab);
+    }
+  }, [location.state]);
+
   useEffect(() => {
     if (!clientId) return;
+    
+    // If custom is selected but dates are not set, initialize them
+    if (dateRange === "custom" && (!customStartDate || !customEndDate)) {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      setCustomEndDate(endDate.toISOString().split('T')[0]);
+      setCustomStartDate(startDate.toISOString().split('T')[0]);
+      setShowCustomDatePicker(true);
+      return; // Don't fetch yet, wait for dates to be set
+    }
+    
     const fetchSummary = async () => {
       try {
         setFetchingSummary(true);
-        const res = await api.get(`/seo/dashboard/${clientId}?period=${dateRange}`);
+        const res = await api.get(buildDashboardUrl(clientId));
         const payload = res.data || {};
         setGa4Connected(payload?.isGA4Connected || false);
         setDashboardSummary(formatDashboardSummary(payload));
@@ -592,7 +641,7 @@ const ClientDashboardPage: React.FC = () => {
     };
 
     fetchSummary();
-  }, [clientId, dateRange]);
+  }, [clientId, dateRange, customStartDate, customEndDate, buildDashboardUrl]);
 
   const fetchBacklinkTimeseries = useCallback(async () => {
     if (!clientId) return;
@@ -700,9 +749,9 @@ const ClientDashboardPage: React.FC = () => {
             name,
             value,
             color,
-          };
+          } as TrafficSourceSlice;
         })
-        .filter((item) => Number.isFinite(item.value) && item.value > 0);
+        .filter((item: TrafficSourceSlice) => Number.isFinite(item.value) && item.value > 0);
 
       if (formatted.length === 0) {
         setTrafficSources([]);
@@ -1095,7 +1144,7 @@ const ClientDashboardPage: React.FC = () => {
       setGa4Properties([]);
       setGa4Connected(true);
       // Refresh dashboard data
-      const res = await api.get(`/seo/dashboard/${clientId}?period=${dateRange}`);
+      const res = await api.get(buildDashboardUrl(clientId));
       const payload = res.data || {};
       setDashboardSummary(formatDashboardSummary(payload));
     } catch (error: any) {
@@ -1233,16 +1282,76 @@ const ClientDashboardPage: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-3">
-          <select
-            value={dateRange}
-            onChange={(e) => setDateRange(e.target.value)}
-            className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          >
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="90">Last 90 days</option>
-            <option value="365">Last year</option>
-          </select>
+          <div className="flex items-center space-x-2">
+            <select
+              value={dateRange}
+              onChange={(e) => {
+                const newValue = e.target.value;
+                setDateRange(newValue);
+                if (newValue === "custom") {
+                  setShowCustomDatePicker(true);
+                  // Set default dates: last 30 days
+                  const endDate = new Date();
+                  const startDate = new Date();
+                  startDate.setDate(startDate.getDate() - 30);
+                  setCustomEndDate(endDate.toISOString().split('T')[0]);
+                  setCustomStartDate(startDate.toISOString().split('T')[0]);
+                } else {
+                  setShowCustomDatePicker(false);
+                }
+              }}
+              className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last year</option>
+              <option value="custom">Custom</option>
+            </select>
+            {showCustomDatePicker && (
+              <div className="flex items-center space-x-2">
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  max={customEndDate || new Date().toISOString().split('T')[0]}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+                <span className="text-gray-500">to</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  min={customStartDate || undefined}
+                  max={new Date().toISOString().split('T')[0]}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (customStartDate && customEndDate) {
+                      try {
+                        setFetchingSummary(true);
+                        const res = await api.get(buildDashboardUrl(clientId!));
+                        const payload = res.data || {};
+                        setDashboardSummary(formatDashboardSummary(payload));
+                      } catch (error: any) {
+                        console.error("Failed to fetch dashboard summary", error);
+                        setDashboardSummary(null);
+                      } finally {
+                        setFetchingSummary(false);
+                      }
+                    } else {
+                      toast.error("Please select both start and end dates");
+                    }
+                  }}
+                  className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors text-sm"
+                >
+                  Apply
+                </button>
+              </div>
+            )}
+          </div>
           {user?.role === "SUPER_ADMIN" && (
             <button
               type="button"
@@ -1479,7 +1588,7 @@ const ClientDashboardPage: React.FC = () => {
                 <div className="bg-white p-6 rounded-xl border border-gray-200">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Key Events</p>
+                      <p className="text-sm font-medium text-gray-600">Key Events (Conversions)</p>
                       <p className="text-2xl font-bold text-gray-900">{keyEventsDisplay}</p>
                     </div>
                     <TrendingUp className="h-8 w-8 text-orange-500" />
@@ -1594,7 +1703,7 @@ const ClientDashboardPage: React.FC = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={resolvedTrafficSources}
+                          data={resolvedTrafficSources as any}
                           dataKey="value"
                           nameKey="name"
                           cx="50%"
@@ -2347,7 +2456,7 @@ const ClientDashboardPage: React.FC = () => {
                   <div className="bg-white p-6 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-gray-600">Key Events</p>
+                        <p className="text-sm font-medium text-gray-600">Key Events (Conversions)</p>
                         <p className="text-2xl font-bold text-gray-900">{keyEventsDisplay}</p>
                       </div>
                       <TrendingUp className="h-8 w-8 text-orange-500" />
@@ -2454,10 +2563,10 @@ const ClientDashboardPage: React.FC = () => {
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                          <Pie
-                            data={resolvedTrafficSources}
-                            dataKey="value"
-                            nameKey="name"
+                            <Pie
+                              data={resolvedTrafficSources as any}
+                              dataKey="value"
+                              nameKey="name"
                             cx="50%"
                             cy="50%"
                             outerRadius={80}
