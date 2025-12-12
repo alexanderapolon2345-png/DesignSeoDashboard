@@ -63,6 +63,11 @@ interface DashboardSummary {
   newUsersTrend?: TrendPoint[] | null;
   activeUsersTrend?: TrendPoint[] | null;
   isGA4Connected?: boolean;
+  ga4Events?: Array<{
+    name: string;
+    count: number;
+    change?: string;
+  }> | null;
   client?: {
     id: string;
     name: string;
@@ -94,6 +99,18 @@ const ShareDashboardPage: React.FC = () => {
   const [backlinkTimeseries, setBacklinkTimeseries] = useState<BacklinkTimeseriesItem[]>([]);
   const [backlinkTimeseriesLoading, setBacklinkTimeseriesLoading] = useState(false);
   const [backlinkTimeseriesError, setBacklinkTimeseriesError] = useState<string | null>(null);
+  const [backlinksList, setBacklinksList] = useState<Array<{
+    id: string;
+    sourceUrl: string;
+    targetUrl: string;
+    anchorText: string | null;
+    domainRating: number | null;
+    urlRating: number | null;
+    isFollow: boolean;
+    firstSeen: string | null;
+  }>>([]);
+  const [backlinksListLoading, setBacklinksListLoading] = useState(false);
+  const [backlinksListError, setBacklinksListError] = useState<string | null>(null);
   const [topPages, setTopPages] = useState<TopPageItem[]>([]);
   const [topPagesLoading, setTopPagesLoading] = useState(false);
   const [topPagesError, setTopPagesError] = useState<string | null>(null);
@@ -265,6 +282,31 @@ const ShareDashboardPage: React.FC = () => {
   useEffect(() => {
     fetchBacklinkTimeseries();
   }, [fetchBacklinkTimeseries]);
+
+  const fetchBacklinksList = useCallback(async () => {
+    if (!token) return;
+
+    try {
+      setBacklinksListLoading(true);
+      setBacklinksListError(null);
+      const res = await api.get(`/seo/share/${encodeURIComponent(token)}/backlinks`, {
+        params: { lost: false, limit: 100 },
+      });
+      const data = Array.isArray(res.data) ? res.data : [];
+      setBacklinksList(data);
+    } catch (error: any) {
+      console.error("Failed to fetch backlinks list", error);
+      setBacklinksList([]);
+      const errorMsg = error?.response?.data?.message || "Unable to load backlinks";
+      setBacklinksListError(errorMsg);
+    } finally {
+      setBacklinksListLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchBacklinksList();
+  }, [fetchBacklinksList]);
 
   useEffect(() => {
     if (!token) return;
@@ -722,13 +764,15 @@ const ShareDashboardPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Ranked Keywords Overview */}
-            {dashboardSummary?.client?.id && (
+            {/* Ranked Keywords Overview (same as client report view, without refresh button) */}
+            {dashboardSummary?.client?.id && token && (
               <RankedKeywordsOverview
                 clientId={dashboardSummary.client.id}
                 clientName={dashboardSummary.client.name}
                 title="Total Keywords Ranked"
                 subtitle="Monitor how many organic keywords this client ranks for and how that total changes month-to-month."
+                shareToken={token}
+                enableRefresh={false}
               />
             )}
 
@@ -779,71 +823,7 @@ const ShareDashboardPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-200">
-              <div className="p-6 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">Visitor Source</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Session Source</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitors</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sessions</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Key Events</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Count</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {visitorSourceData.map((source, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.source}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.visitors.toLocaleString()}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.sessions}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.keyEvents}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.eventCount}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-xl border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Events</h3>
-                <div className="space-y-4">
-                  {eventsData.map((event, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">{event.name}</p>
-                        <p className="text-sm text-gray-500">{event.count.toLocaleString()} events</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-green-600">{event.change}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Conversions</h3>
-                <div className="space-y-4">
-                  {conversionsData.map((conversion, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">{conversion.name}</p>
-                        <p className="text-sm text-gray-500">{conversion.count} conversions</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-green-600">{conversion.change}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            {/* Visitor Source, Events, and extra Conversions sections omitted to match the client report view */}
 
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="p-6 border-b border-gray-200">
@@ -941,6 +921,7 @@ const ShareDashboardPage: React.FC = () => {
               </div>
             </div>
 
+            {/* New Links section – mirror the view-report modal: show only the trend list */}
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="p-6 border-b border-gray-200 flex items-center justify-between">
                 <div>
@@ -1002,3 +983,4 @@ const ShareDashboardPage: React.FC = () => {
 };
 
 export default ShareDashboardPage;
+

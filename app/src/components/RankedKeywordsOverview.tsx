@@ -54,6 +54,8 @@ interface RankedKeywordsOverviewProps {
   subtitle?: string;
   showHeader?: boolean;
   headerActions?: React.ReactNode;
+  shareToken?: string | null; // For share dashboard mode
+  enableRefresh?: boolean; // Control showing the internal refresh button
 }
 
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -77,6 +79,8 @@ const RankedKeywordsOverview: React.FC<RankedKeywordsOverviewProps> = ({
   subtitle = "Track how many keywords this client is ranking for and how it is trending over time.",
   showHeader = true,
   headerActions,
+  shareToken,
+  enableRefresh = true,
 }) => {
   const { user } = useSelector((state: RootState) => state.auth);
   const [summary, setSummary] = useState<RankedKeywordsSummary | null>(null);
@@ -96,8 +100,11 @@ const RankedKeywordsOverview: React.FC<RankedKeywordsOverviewProps> = ({
       try {
         setSummaryLoading(true);
         setSummaryError(null);
-        // Always read from DB - no fetch parameter
-        const res = await api.get(`/seo/ranked-keywords/${clientId}`);
+        // Use share endpoint if shareToken is provided, otherwise use regular endpoint
+        const endpoint = shareToken 
+          ? `/seo/share/${encodeURIComponent(shareToken)}/ranked-keywords`
+          : `/seo/ranked-keywords/${clientId}`;
+        const res = await api.get(endpoint);
         const data: RankedKeywordsSummary = res.data || null;
         if (data) {
           setSummary({
@@ -119,7 +126,7 @@ const RankedKeywordsOverview: React.FC<RankedKeywordsOverviewProps> = ({
         setSummaryLoading(false);
       }
     },
-    [clientId]
+    [clientId, shareToken]
   );
 
   const fetchHistory = useCallback(async () => {
@@ -127,7 +134,11 @@ const RankedKeywordsOverview: React.FC<RankedKeywordsOverviewProps> = ({
     try {
       setHistoryLoading(true);
       setHistoryError(null);
-      const res = await api.get(`/seo/ranked-keywords/${clientId}/history`);
+      // Use share endpoint if shareToken is provided, otherwise use regular endpoint
+      const endpoint = shareToken
+        ? `/seo/share/${encodeURIComponent(shareToken)}/ranked-keywords/history`
+        : `/seo/ranked-keywords/${clientId}/history`;
+      const res = await api.get(endpoint);
       const data: RankedKeywordsHistoryPoint[] = res.data || [];
       setHistory(formatHistory(data));
     } catch (error: any) {
@@ -139,7 +150,7 @@ const RankedKeywordsOverview: React.FC<RankedKeywordsOverviewProps> = ({
     } finally {
       setHistoryLoading(false);
     }
-  }, [clientId]);
+  }, [clientId, shareToken]);
 
   useEffect(() => {
     if (!clientId) return;
@@ -223,7 +234,7 @@ const RankedKeywordsOverview: React.FC<RankedKeywordsOverviewProps> = ({
           </div>
           <div className="flex items-center space-x-2">
             {headerActions}
-            {user?.role === "SUPER_ADMIN" && (
+            {user?.role === "SUPER_ADMIN" && enableRefresh && (
               <button
                 type="button"
                 onClick={handleRefresh}

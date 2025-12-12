@@ -23,6 +23,8 @@ import {
   Eye,
   Edit,
   Send,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import api from "@/lib/api";
 import { Client } from "@/store/slices/clientSlice";
@@ -33,9 +35,6 @@ import toast from "react-hot-toast";
 import { useSelector } from "react-redux";
 import { RootState } from "@/store";
 import {
-  visitorSourceData,
-  eventsData,
-  conversionsData,
   backlinksData,
   workLogData,
 } from "@/data/reportSamples";
@@ -123,6 +122,11 @@ interface DashboardSummary {
   topKeywords?: any[];
   newUsersTrend?: TrendPoint[];
   totalUsersTrend?: TrendPoint[];
+  ga4Events?: Array<{
+    name: string;
+    count: number;
+    change?: string;
+  }> | null;
 }
 
 const TRAFFIC_SOURCE_COLORS: Record<string, string> = {
@@ -222,7 +226,18 @@ const ClientDashboardPage: React.FC = () => {
   const [refreshingDashboard, setRefreshingDashboard] = useState(false);
   const [refreshingTopPages, setRefreshingTopPages] = useState(false);
   const [refreshingBacklinks, setRefreshingBacklinks] = useState(false);
+  const [refreshingTrafficSources, setRefreshingTrafficSources] = useState(false);
   const [sendingReport, setSendingReport] = useState(false);
+  const [expandedPageUrls, setExpandedPageUrls] = useState<Set<string>>(new Set());
+  const [pageKeywords, setPageKeywords] = useState<Record<string, Array<{
+    id: string;
+    keyword: string;
+    currentPosition: number | null;
+    previousPosition: number | null;
+    searchVolume: number;
+    googleUrl: string | null;
+  }>>>({});
+  const [loadingPageKeywords, setLoadingPageKeywords] = useState<Record<string, boolean>>({});
 
   // Client-specific report creation modal state
   const [showClientReportModal, setShowClientReportModal] = useState(false);
@@ -392,41 +407,6 @@ const ClientDashboardPage: React.FC = () => {
       toast.error(error.response?.data?.message || "Failed to refresh top pages");
     } finally {
       setRefreshingTopPages(false);
-    }
-  }, [clientId]);
-
-  const handleRefreshBacklinks = useCallback(async () => {
-    if (!clientId) return;
-    try {
-      setRefreshingBacklinks(true);
-      await api.post(`/seo/backlinks/${clientId}/refresh`);
-      toast.success("Backlinks refreshed successfully!");
-      // Refetch backlink timeseries
-      const dateTo = new Date();
-      const dateFrom = new Date();
-      dateFrom.setDate(dateFrom.getDate() - 30);
-      const res = await api.get(`/seo/backlinks/${clientId}/timeseries`, {
-        params: {
-          dateFrom: dateFrom.toISOString().split('T')[0],
-          dateTo: dateTo.toISOString().split('T')[0],
-          groupRange: "day",
-        },
-      });
-      const normalized = (res.data || []).map((item: any) => ({
-        date: item.date,
-        newBacklinks: item.newBacklinks || 0,
-        lostBacklinks: item.lostBacklinks || 0,
-        newReferringDomains: item.newReferringDomains || 0,
-        lostReferringDomains: item.lostReferringDomains || 0,
-      })).sort((a: any, b: any) => {
-        return new Date(b.date).getTime() - new Date(a.date).getTime();
-      });
-      setBacklinkTimeseries(normalized.slice(0, 15));
-      setBacklinkTimeseriesError(null);
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || "Failed to refresh backlinks");
-    } finally {
-      setRefreshingBacklinks(false);
     }
   }, [clientId]);
 
@@ -686,6 +666,21 @@ const ClientDashboardPage: React.FC = () => {
     fetchBacklinkTimeseries();
   }, [fetchBacklinkTimeseries]);
 
+  const handleRefreshBacklinks = useCallback(async () => {
+    if (!clientId) return;
+    try {
+      setRefreshingBacklinks(true);
+      await api.post(`/seo/backlinks/${clientId}/refresh`);
+      toast.success("Backlinks refreshed successfully!");
+      // Refetch backlink timeseries using the same function that's used for initial load
+      await fetchBacklinkTimeseries();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to refresh backlinks");
+    } finally {
+      setRefreshingBacklinks(false);
+    }
+  }, [clientId, fetchBacklinkTimeseries]);
+
   useEffect(() => {
     if (!clientId) return;
 
@@ -774,6 +769,23 @@ const ClientDashboardPage: React.FC = () => {
   useEffect(() => {
     fetchTrafficSources();
   }, [fetchTrafficSources]);
+
+  // GA4 Events are stored in the database but no longer displayed in the client dashboard/report UI
+
+  const handleRefreshTrafficSources = useCallback(async () => {
+    if (!clientId) return;
+    try {
+      setRefreshingTrafficSources(true);
+      await api.post(`/seo/dashboard/${clientId}/refresh`);
+      toast.success("Traffic sources refreshed successfully!");
+      // Refetch traffic sources
+      await fetchTrafficSources();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to refresh traffic sources");
+    } finally {
+      setRefreshingTrafficSources(false);
+    }
+  }, [clientId, fetchTrafficSources]);
 
   // Load single report from server (enforced one report per client)
   const loadReport = useCallback(async () => {
@@ -1138,15 +1150,24 @@ const ClientDashboardPage: React.FC = () => {
       await api.post(`/clients/${clientId}/ga4/connect`, {
         propertyId: propertyIdToUse,
       });
-      toast.success("GA4 connected successfully!");
+      toast.success("GA4 connected successfully! Fetching data...");
       setShowGA4Modal(false);
       setGa4PropertyId("");
       setGa4Properties([]);
+      
+      // Wait a moment for backend to save data, then refresh dashboard data
+      // The backend now awaits data fetch/save, but add a small delay to be safe
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Set GA4 connected state after data is saved
       setGa4Connected(true);
+      
       // Refresh dashboard data
       const res = await api.get(buildDashboardUrl(clientId));
       const payload = res.data || {};
       setDashboardSummary(formatDashboardSummary(payload));
+      
+      toast.success("GA4 data loaded successfully!");
     } catch (error: any) {
       console.error("Failed to connect GA4 property:", error);
       toast.error(error.response?.data?.message || "Failed to connect GA4 property");
@@ -1726,71 +1747,7 @@ const ClientDashboardPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200">
-                <div className="p-6 border-b border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-900">Visitor Source</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Session Source</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitors</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sessions</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Key Events</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Count</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {visitorSourceData.map((source, index) => (
-                        <tr key={index} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.source}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.visitors.toLocaleString()}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.sessions}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.keyEvents}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.eventCount}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-xl border border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Events</h3>
-                  <div className="space-y-4">
-                    {eventsData.map((event, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div>
-                          <p className="font-medium text-gray-900">{event.name}</p>
-                          <p className="text-sm text-gray-500">{event.count.toLocaleString()} events</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium text-green-600">{event.change}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-white p-6 rounded-xl border border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Conversions</h3>
-                  <div className="space-y-4">
-                    {conversionsData.map((conversion, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div>
-                          <p className="font-medium text-gray-900">{conversion.name}</p>
-                          <p className="text-sm text-gray-500">{conversion.count} conversions</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium text-green-600">{conversion.change}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              {/* GA4 Events table removed from dashboard view as requested */}
 
               <div className="bg-white rounded-xl border border-gray-200">
                 <div className="p-6 border-b border-gray-200 flex items-center justify-between">
@@ -1852,18 +1809,71 @@ const ClientDashboardPage: React.FC = () => {
                           </td>
                         </tr>
                       ) : (
-                        resolvedTopPages.map((page, index) => (
-                          <tr key={`${page.url}-${index}`} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <a
-                                href={page.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sm font-medium text-blue-600 hover:text-blue-800 break-all"
-                              >
-                                {page.url}
-                              </a>
-                            </td>
+                        resolvedTopPages.map((page, index) => {
+                          const isExpanded = expandedPageUrls.has(page.url);
+                          const keywords = pageKeywords[page.url] || [];
+                          const isLoading = loadingPageKeywords[page.url] || false;
+
+                          const handleToggleExpand = async () => {
+                            if (isExpanded) {
+                              setExpandedPageUrls(prev => {
+                                const newSet = new Set(prev);
+                                newSet.delete(page.url);
+                                return newSet;
+                              });
+                            } else {
+                              setExpandedPageUrls(prev => new Set(prev).add(page.url));
+                              
+                              // Fetch keywords if not already loaded
+                              if (!pageKeywords[page.url] && clientId) {
+                                setLoadingPageKeywords(prev => ({ ...prev, [page.url]: true }));
+                                try {
+                                  const res = await api.get(`/seo/top-pages/${clientId}/keywords`, {
+                                    params: { url: page.url }
+                                  });
+                                  setPageKeywords(prev => ({
+                                    ...prev,
+                                    [page.url]: res.data || []
+                                  }));
+                                } catch (error: any) {
+                                  console.error("Failed to fetch page keywords:", error);
+                                  setPageKeywords(prev => ({
+                                    ...prev,
+                                    [page.url]: []
+                                  }));
+                                } finally {
+                                  setLoadingPageKeywords(prev => ({ ...prev, [page.url]: false }));
+                                }
+                              }
+                            }
+                          };
+
+                          return (
+                            <React.Fragment key={`${page.url}-${index}`}>
+                              <tr className="hover:bg-gray-50">
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={handleToggleExpand}
+                                      className="text-gray-400 hover:text-gray-600"
+                                      title="Show keywords ranking for this page"
+                                    >
+                                      {isExpanded ? (
+                                        <ChevronDown className="h-4 w-4" />
+                                      ) : (
+                                        <ChevronRight className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                    <a
+                                      href={page.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sm font-medium text-blue-600 hover:text-blue-800 break-all"
+                                    >
+                                      {page.url}
+                                    </a>
+                                  </div>
+                                </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               {topPagesLoading ? "..." : formatNumber(page.keywords)}
                             </td>
@@ -1903,7 +1913,72 @@ const ClientDashboardPage: React.FC = () => {
                               {topPagesLoading ? "..." : formatNumber(page.paidTraffic)}
                             </td>
                           </tr>
-                        ))
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={8} className="px-6 py-4 bg-gray-50">
+                                <div className="space-y-2">
+                                  <h4 className="text-sm font-semibold text-gray-900 mb-3">
+                                    Keywords Ranking for This Page
+                                  </h4>
+                                  {isLoading ? (
+                                    <div className="flex items-center justify-center py-4">
+                                      <Loader2 className="h-4 w-4 animate-spin text-primary-600 mr-2" />
+                                      <span className="text-sm text-gray-500">Loading keywords...</span>
+                                    </div>
+                                  ) : keywords.length === 0 ? (
+                                    <div className="text-sm text-gray-500 text-center py-4">
+                                      No keywords found ranking for this page.
+                                    </div>
+                                  ) : (
+                                    <div className="max-h-64 overflow-y-auto">
+                                      <table className="w-full text-sm">
+                                        <thead className="bg-gray-100 sticky top-0">
+                                          <tr>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Keyword</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Position</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Change</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Search Volume</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                          {keywords.map((kw) => {
+                                            const positionChange = kw.previousPosition !== null && kw.currentPosition !== null
+                                              ? kw.currentPosition - kw.previousPosition
+                                              : null;
+                                            return (
+                                              <tr key={kw.id} className="hover:bg-gray-50">
+                                                <td className="px-3 py-2 text-gray-900">{kw.keyword}</td>
+                                                <td className="px-3 py-2 text-gray-900">
+                                                  {kw.currentPosition !== null ? `#${kw.currentPosition}` : "—"}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                  {positionChange !== null && positionChange !== 0 ? (
+                                                    <span className={`text-xs font-medium ${
+                                                      positionChange < 0 ? "text-green-600" : "text-red-600"
+                                                    }`}>
+                                                      {positionChange < 0 ? "↑" : "↓"} {Math.abs(positionChange)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-xs text-gray-400">—</span>
+                                                  )}
+                                                </td>
+                                                <td className="px-3 py-2 text-gray-700">
+                                                  {kw.searchVolume > 0 ? kw.searchVolume.toLocaleString() : "—"}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -2540,6 +2615,7 @@ const ClientDashboardPage: React.FC = () => {
                   clientName={client?.name}
                   title="Total Keywords Ranked"
                   subtitle="Monitor how many organic keywords this client ranks for and how that total changes month-to-month."
+                  enableRefresh={false}
                 />
 
                 <div className="bg-white p-6 rounded-xl border border-gray-200">
@@ -2587,71 +2663,7 @@ const ClientDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-xl border border-gray-200">
-                  <div className="p-6 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold text-gray-900">Visitor Source</h3>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Session Source</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitors</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sessions</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Key Events</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Count</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {visitorSourceData.map((source, index) => (
-                          <tr key={index} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.source}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.visitors.toLocaleString()}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.sessions}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.keyEvents}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{source.eventCount}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-white p-6 rounded-xl border border-gray-200">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Events</h3>
-                    <div className="space-y-4">
-                      {eventsData.map((event, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="font-medium text-gray-900">{event.name}</p>
-                            <p className="text-sm text-gray-500">{event.count.toLocaleString()} events</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-medium text-green-600">{event.change}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-xl border border-gray-200">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Conversions</h3>
-                    <div className="space-y-4">
-                      {conversionsData.map((conversion, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="font-medium text-gray-900">{conversion.name}</p>
-                            <p className="text-sm text-gray-500">{conversion.count} conversions</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-medium text-green-600">{conversion.change}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                {/* GA4 Events Section in Report Modal removed as requested */}
 
                 <div className="bg-white rounded-xl border border-gray-200">
                   <div className="p-6 border-b border-gray-200">
@@ -2754,27 +2766,6 @@ const ClientDashboardPage: React.FC = () => {
                       <h3 className="text-lg font-semibold text-gray-900">New Links</h3>
                       <p className="text-sm text-gray-500">Daily backlinks acquired (last 30 days)</p>
                     </div>
-                    {user?.role === "SUPER_ADMIN" && (
-                      <button
-                        type="button"
-                        onClick={handleRefreshBacklinks}
-                        disabled={refreshingBacklinks}
-                        className="bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed text-sm"
-                        title="Refresh backlinks from DataForSEO"
-                      >
-                        {refreshingBacklinks ? (
-                          <>
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>Refreshing...</span>
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="h-3 w-3" />
-                            <span>Refresh</span>
-                          </>
-                        )}
-                      </button>
-                    )}
                   </div>
                   <div className="p-6 space-y-4">
                     {backlinkTimeseriesLoading ? (
@@ -3062,4 +3053,6 @@ const ClientDashboardPage: React.FC = () => {
 };
 
 export default ClientDashboardPage;
+
+
 

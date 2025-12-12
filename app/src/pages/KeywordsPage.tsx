@@ -70,10 +70,6 @@ const KeywordsPage: React.FC = () => {
   const [refreshingKeywordIds, setRefreshingKeywordIds] = useState<Record<string, boolean>>({});
 
   const [newKeywordValue, setNewKeywordValue] = useState("");
-  const [newKeywordVolume, setNewKeywordVolume] = useState("");
-  const [newKeywordDifficulty, setNewKeywordDifficulty] = useState("");
-  const [newKeywordCpc, setNewKeywordCpc] = useState("");
-  const [newKeywordCompetition, setNewKeywordCompetition] = useState("");
   const [addingKeyword, setAddingKeyword] = useState(false);
   const [addKeywordMessage, setAddKeywordMessage] = useState<string | null>(null);
 
@@ -208,7 +204,7 @@ const KeywordsPage: React.FC = () => {
       setAssigningKeywords(true);
       setAssignMessage(null);
 
-      // Add as tracked keywords
+      // Add as tracked keywords - auto-fetch data from DataForSEO
       await Promise.all(
         keywords.map((item) =>
           api.post(`/seo/keywords/${assignClientId}`, {
@@ -219,7 +215,9 @@ const KeywordsPage: React.FC = () => {
             competition:
               item.competitionLevel ||
               (item.competition !== null ? item.competition.toFixed(2) : undefined),
-            fetchFromDataForSEO: false,
+            fetchFromDataForSEO: true, // Auto-fetch ranking data
+            locationCode: researchLocation,
+            languageCode: researchLanguage,
           })
         )
       );
@@ -292,22 +290,17 @@ const KeywordsPage: React.FC = () => {
     try {
       setAddingKeyword(true);
       setAddKeywordMessage(null);
+      // Auto-fetch data from DataForSEO when adding keyword
       await api.post(`/seo/keywords/${selectedClientId}`, {
         keyword: newKeywordValue.trim(),
-        searchVolume: Number(newKeywordVolume) || 0,
-        difficulty: newKeywordDifficulty ? Number(newKeywordDifficulty) : undefined,
-        cpc: newKeywordCpc ? Number(newKeywordCpc) : undefined,
-        competition: newKeywordCompetition || undefined,
-        fetchFromDataForSEO: false,
+        fetchFromDataForSEO: true, // Auto-fetch ranking data
+        locationCode: DEFAULT_LOCATION,
+        languageCode: DEFAULT_LANGUAGE,
       });
 
-      toast.success("Keyword added successfully!");
-      setAddKeywordMessage("Keyword added successfully.");
-      setNewKeywordValue("{}");
-      setNewKeywordVolume("{}");
-      setNewKeywordDifficulty("{}");
-      setNewKeywordCpc("{}");
-      setNewKeywordCompetition("{}");
+      toast.success("Keyword added and data fetched successfully!");
+      setAddKeywordMessage("Keyword added successfully. Ranking data will be fetched automatically.");
+      setNewKeywordValue("");
 
       const res = await api.get(`/seo/keywords/${selectedClientId}`);
       const keywordList: Keyword[] = Array.isArray(res.data) ? res.data : [];
@@ -677,9 +670,9 @@ const KeywordsPage: React.FC = () => {
 
             <form
               onSubmit={handleAddTrackedKeyword}
-              className="grid grid-cols-1 md:grid-cols-5 gap-3 rounded-lg border border-gray-200 bg-gray-50/60 p-4"
+              className="flex items-end gap-3 rounded-lg border border-gray-200 bg-gray-50/60 p-4"
             >
-              <div className="md:col-span-2">
+              <div className="flex-1">
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
                   Keyword
                 </label>
@@ -691,84 +684,29 @@ const KeywordsPage: React.FC = () => {
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
                   required
                 />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  Search volume
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={newKeywordVolume}
-                  onChange={(e) => setNewKeywordVolume(e.target.value)}
-                  placeholder="0"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  Difficulty (0-100)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={newKeywordDifficulty}
-                  onChange={(e) => setNewKeywordDifficulty(e.target.value)}
-                  placeholder="—"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  CPC (USD)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={newKeywordCpc}
-                  onChange={(e) => setNewKeywordCpc(e.target.value)}
-                  placeholder="0.00"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  Competition
-                </label>
-                <input
-                  type="text"
-                  value={newKeywordCompetition}
-                  onChange={(e) => setNewKeywordCompetition(e.target.value)}
-                  placeholder="e.g. 0.45 or Medium"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
-                />
-              </div>
-              <div className="md:col-span-5 flex items-center justify-between">
-                <p className="text-xs text-gray-500">
-                  Add a keyword manually or use the research tab to discover new opportunities.
+                <p className="mt-1 text-xs text-gray-500">
+                  Data will be automatically fetched from DataForSEO when you track this keyword.
                 </p>
-                <button
-                  type="submit"
-                  disabled={addingKeyword || !selectedClientId}
-                  className="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
-                >
-                  {addingKeyword ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Saving…
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add keyword
-                    </>
-                  )}
-                </button>
               </div>
+              <button
+                type="submit"
+                disabled={addingKeyword || !selectedClientId}
+                className="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60 h-fit"
+              >
+                {addingKeyword ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Tracking…
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Track
+                  </>
+                )}
+              </button>
               {addKeywordMessage && (
-                <div className="md:col-span-5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-700">
+                <div className="absolute mt-16 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-700">
                   {addKeywordMessage}
                 </div>
               )}

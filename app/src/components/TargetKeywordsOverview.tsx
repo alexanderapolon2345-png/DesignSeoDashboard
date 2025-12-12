@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw, Search, Star, BarChart3, MapPin, TrendingUp, TrendingDown, ExternalLink } from "lucide-react";
+import { Loader2, RefreshCw, Search, Star, BarChart3, MapPin, TrendingUp, TrendingDown, ExternalLink, Edit2, Check, X } from "lucide-react";
 import { format } from "date-fns";
 import api from "@/lib/api";
 import toast from "react-hot-toast";
@@ -53,6 +53,10 @@ const TargetKeywordsOverview: React.FC<TargetKeywordsOverviewProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [editingKeywordId, setEditingKeywordId] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<"date" | "position" | null>(null);
+  const [editDateValue, setEditDateValue] = useState<string>("");
+  const [editPositionValue, setEditPositionValue] = useState<string>("");
 
   const fetchKeywords = useCallback(async () => {
     if (!clientId) return;
@@ -115,25 +119,65 @@ const TargetKeywordsOverview: React.FC<TargetKeywordsOverviewProps> = ({
   const getSERPFeaturesIcons = (serpItemTypes: string[] | null) => {
     if (!serpItemTypes || serpItemTypes.length === 0) return null;
     
-    const featureIcons: Record<string, { icon: string; color: string }> = {
-      local_pack: { icon: "📍", color: "text-blue-600" },
-      featured_snippet: { icon: "📝", color: "text-green-600" },
-      video: { icon: "▶️", color: "text-red-600" },
-      images: { icon: "🖼️", color: "text-purple-600" },
-      people_also_ask: { icon: "❓", color: "text-yellow-600" },
-      related_searches: { icon: "🔍", color: "text-gray-600" },
-      knowledge_graph: { icon: "📊", color: "text-indigo-600" },
-      shopping: { icon: "🛒", color: "text-pink-600" },
+    const featureIcons: Record<string, { icon: string; color: string; label: string }> = {
+      local_pack: { icon: "📍", color: "text-blue-600", label: "Google Maps" },
+      featured_snippet: { icon: "📝", color: "text-green-600", label: "Featured Snippet" },
+      video: { icon: "▶️", color: "text-red-600", label: "Video" },
+      images: { icon: "🖼️", color: "text-purple-600", label: "Google Images" },
+      people_also_ask: { icon: "❓", color: "text-yellow-600", label: "People Also Ask" },
+      related_searches: { icon: "🔍", color: "text-gray-600", label: "Related Searches" },
+      knowledge_graph: { icon: "📊", color: "text-indigo-600", label: "Knowledge Graph" },
+      shopping: { icon: "🛒", color: "text-pink-600", label: "Shopping" },
+      organic: { icon: "🔗", color: "text-gray-600", label: "Organic" },
     };
     
     return serpItemTypes
       .filter(type => featureIcons[type])
       .slice(0, 3) // Show max 3 icons
       .map(type => (
-        <span key={type} className={`inline-block ${featureIcons[type].color}`} title={type.replace(/_/g, ' ')}>
+        <span 
+          key={type} 
+          className={`inline-block ${featureIcons[type].color} cursor-help`} 
+          title={featureIcons[type].label}
+        >
           {featureIcons[type].icon}
         </span>
       ));
+  };
+
+  const handleStartEdit = (keywordId: string, field: "date" | "position", keyword: TargetKeyword) => {
+    setEditingKeywordId(keywordId);
+    setEditingField(field);
+    if (field === "date") {
+      setEditDateValue(keyword.createdAt ? format(new Date(keyword.createdAt), "yyyy-MM-dd") : "");
+    } else {
+      setEditPositionValue(keyword.googlePosition?.toString() || "");
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingKeywordId(null);
+    setEditingField(null);
+    setEditDateValue("");
+    setEditPositionValue("");
+  };
+
+  const handleSaveEdit = async (keywordId: string) => {
+    try {
+      const updateData: any = {};
+      if (editingField === "date" && editDateValue) {
+        updateData.createdAt = editDateValue;
+      } else if (editingField === "position") {
+        updateData.googlePosition = editPositionValue ? parseInt(editPositionValue) : null;
+      }
+
+      await api.patch(`/seo/target-keywords/${keywordId}`, updateData);
+      toast.success("Keyword updated successfully!");
+      await fetchKeywords();
+      handleCancelEdit();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to update keyword");
+    }
   };
 
   if (!clientId) {
@@ -248,14 +292,78 @@ const TargetKeywordsOverview: React.FC<TargetKeywordsOverviewProps> = ({
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-600">
-                          {keyword.createdAt ? format(new Date(keyword.createdAt), "MMM d, yyyy") : "—"}
-                        </div>
+                        {editingKeywordId === keyword.id && editingField === "date" ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="date"
+                              value={editDateValue}
+                              onChange={(e) => setEditDateValue(e.target.value)}
+                              className="text-sm border border-gray-300 rounded px-2 py-1"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleSaveEdit(keyword.id)}
+                              className="text-green-600 hover:text-green-800"
+                              title="Save"
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={handleCancelEdit}
+                              className="text-red-600 hover:text-red-800"
+                              title="Cancel"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div 
+                            className="text-sm text-gray-600 flex items-center gap-2 group cursor-pointer hover:text-primary-600"
+                            onClick={() => handleStartEdit(keyword.id, "date", keyword)}
+                            title="Click to edit campaign start date"
+                          >
+                            <span>{keyword.createdAt ? format(new Date(keyword.createdAt), "MMM d, yyyy") : "—"}</span>
+                            <Edit2 className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900 font-medium">
-                          {formatPosition(keyword.googlePosition)}
-                        </div>
+                        {editingKeywordId === keyword.id && editingField === "position" ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="1"
+                              value={editPositionValue}
+                              onChange={(e) => setEditPositionValue(e.target.value)}
+                              className="text-sm border border-gray-300 rounded px-2 py-1 w-20"
+                              placeholder="Position"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleSaveEdit(keyword.id)}
+                              className="text-green-600 hover:text-green-800"
+                              title="Save"
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={handleCancelEdit}
+                              className="text-red-600 hover:text-red-800"
+                              title="Cancel"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div 
+                            className="text-sm text-gray-900 font-medium flex items-center gap-2 group cursor-pointer hover:text-primary-600"
+                            onClick={() => handleStartEdit(keyword.id, "position", keyword)}
+                            title="Click to edit Google ranking"
+                          >
+                            <span>{formatPosition(keyword.googlePosition)}</span>
+                            <Edit2 className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {(() => {
@@ -278,7 +386,7 @@ const TargetKeywordsOverview: React.FC<TargetKeywordsOverviewProps> = ({
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-1">
-                          {getSERPFeaturesIcons(keyword.serpItemTypes) || <span className="text-sm text-gray-400">—</span>}
+                          {getSERPFeaturesIcons(keyword.serpItemTypes) || <span className="text-sm text-gray-400" title="No SERP features">—</span>}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
