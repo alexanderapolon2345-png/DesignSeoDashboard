@@ -12,13 +12,11 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-
-    /* Path mapping */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./server/src/*"]
     }
   },
-  "include": ["src/**/*", "prisma/**/*"],
+  "include": ["server/src/**/*", "server/prisma/**/*"],
   "exclude": ["node_modules", "dist"]
 }
